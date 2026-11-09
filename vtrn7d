@@ -1,4 +1,4 @@
--- VETERANO TEAM | UI COMPLETA | COM LOGIN E TELEMETRIA
+-- VETERANO TEAM | PREMIUM PC/MOBILE | LOGIN | SEM COLETA ESTENDIDA
 -- Fly, Speed e TP v12: corpos das rotinas enviados pelo usuario preservados.
 -- INSERT: menu | F: Fly | V: Speed | N: Noclip.
 -- Fly: W/A/S/D, ESPACO sobe e SHIFT esquerdo desce.
@@ -617,15 +617,9 @@ local authSession = (function()
         }
         return false,messages[errorCode] or "Validação recusada: "..errorCode
     end
-    local function reportBan()
-        if type(requestFn)=="function" then
-            pcall(requestFn,{Url=CFG.API_URL.."?action=blacklist&secret="..CFG.VALIDATE_TOKEN.."&hwid="..getIdentifier(),Method="GET"})
-        end
-    end
     local function cancelLogin()
         cancelled=true
         if result==nil then result=false end
-        reportBan()
         if KW and not KW.Destroyed then pcall(function() KW:Destroy() end) end
     end
     env.__VT_PORTAL_LOGIN_CANCEL=cancelLogin
@@ -660,8 +654,7 @@ local authSession = (function()
     KW.maid:Add(KW.Closed:Connect(function()
         if not authorized and result==nil then 
             result=false 
-            reportBan()
-        end
+            end
     end))
     
     local tab=KW:CreateTab({Name="Acesso Restrito",Icon="shield"})
@@ -670,7 +663,7 @@ local authSession = (function()
     -- Texto Profissional Unificado
     section:Paragraph({
         Name="Termos de Uso", 
-        Text="Para continuar é necessário que você concorde com os Termos de Uso da VETERANO TEAM. O compartilhamento, vazamento ou revenda desta licença é estritamente proibido."
+        Text="Para continuar é necessário que você concorde com os Termos de Uso da VETERANO TEAM. O compartilhamento, vazamento ou revenda desta licença é estritamente proibido e resultará em banimento permanente do seu HWID."
     })
 
     local saved=readOwn(CFG.LOGIN_STATE_FILE)==initializedValue and readOwn(CFG.KEY_FILE) or nil
@@ -864,57 +857,7 @@ local function isRoot()
 end
 
 -- ============================================================
--- ROTINA LOCAL v12 FORNECIDA PELO USUARIO
--- ============================================================
-do
-    local Runtime = {
-        acSilenciados = 0, acMotivosVivos = nil, acAplicando = false,
-        acUltimoErro = nil, acStatus = "Aguardando", destroyed = false,
-    }
-    o.acRuntime = Runtime
-    local G = _G
-    local executorHook = hookfunction or (syn and syn.hookfunction)
-    local hookfunction = executorHook and function(...)
-        local results = table.pack(executorHook(...))
-        Runtime.acSilenciados = Runtime.acSilenciados + 1
-        return table.unpack(results, 1, results.n)
-    end
-
-local function applyBypass()
-    local filtergc = getgenv and getgenv().filtergc or _G and G.filtergc
-    local hookfunction = hookfunction or (syn and syn.hookfunction)
-    local newcclosure = newcclosure or (syn and syn.newcclosure)
-    if not (filtergc and hookfunction and newcclosure) then return end
-    local ok, funcs = pcall(filtergc, "function", { Constants = { "FireServer" } }, false)
-    if ok then
-        for _, fn in ipairs(funcs) do
-            local okInfo, src = pcall(debug.info, fn, "s")
-            if okInfo and type(src) == "string" and src:find("Protect") then
-                pcall(hookfunction, fn, newcclosure(function(...) return nil end))
-            end
-        end
-    end
-end
-
-    local function runBypass(source)
-        if Runtime.destroyed or o.destroyed or Runtime.acAplicando then return end
-        Runtime.acAplicando = true
-        Runtime.acSilenciados, Runtime.acUltimoErro = 0, nil
-        local ok, problem = pcall(applyBypass)
-        Runtime.acAplicando = false
-        if not ok then Runtime.acUltimoErro = tostring(problem) end
-        Runtime.acStatus = not ok and ("Rotina local: " .. tostring(problem))
-            or ("Rotina local v12 (" .. tostring(source or "manual") .. "): "
-                .. tostring(Runtime.acSilenciados) .. " chamada(s) de hook sem erro.")
-    end
-    Runtime.acReaplicar = runBypass
-    runBypass("carga")
-    handleReady(LocalPlayer.CharacterAdded:Connect(function()
-        task.wait(2)
-        runBypass("respawn")
-    end))
-end
-
+-- PROTECAO DO JOGO: conexoes e funcoes originais preservadas.
 -- ============================================================
 -- STAFF / FRIEND DETECTION (Jz)
 -- ============================================================
@@ -1048,280 +991,228 @@ do
 end
 
 -- ============================================================
--- FLY / SPEED / TP v12 + LIGACAO COM A UI ANTIGA
--- ============================================================
+-- FLY / SPEED / TP: teclado, controle e joystick nativo; sem hooks do jogo.
 do
-local flyActive = false
-local flyConnection
-local flySpeed = 1.5
-
-local speedActive = false
-local speedConnection
-local speedSpeed = 5
-
-local function toggleFly()
-    flyActive = not flyActive
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-    if not (hrp and humanoid) then return end
-
-    if flyActive then
-        hrp.Anchored = true
-        humanoid.PlatformStand = true
-        
-        local highlight = Instance.new("Highlight")
-        highlight.Name = "FlyHighlight"
-        highlight.FillColor = Color3.fromRGB(0, 255, 128)
-        highlight.OutlineColor = Color3.fromRGB(0, 255, 0)
-        highlight.FillTransparency = 0.5
-        highlight.Parent = char
-
-        flyConnection = RunService.RenderStepped:Connect(LPH_NO_VIRTUALIZE(function()
-            if not flyActive then return end
-            local char = LocalPlayer.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            if not hrp then return end
-            local camera = workspace.CurrentCamera
-            local moveDir = Vector3.new(0,0,0)
-            local keys = UserInputService:GetKeysPressed()
-            
-            for _, key in ipairs(keys) do
-                if key.KeyCode == Enum.KeyCode.W then moveDir = moveDir + camera.CFrame.LookVector
-                elseif key.KeyCode == Enum.KeyCode.S then moveDir = moveDir - camera.CFrame.LookVector
-                elseif key.KeyCode == Enum.KeyCode.A then moveDir = moveDir - camera.CFrame.RightVector
-                elseif key.KeyCode == Enum.KeyCode.D then moveDir = moveDir + camera.CFrame.RightVector
-                elseif key.KeyCode == Enum.KeyCode.Space then moveDir = moveDir + Vector3.new(0,1,0)
-                elseif key.KeyCode == Enum.KeyCode.LeftShift then moveDir = moveDir - Vector3.new(0,1,0)
+    local flyConnection, speedConnection, controls
+    local flyRoot, flyHumanoid, flyCharacter, speedRoot
+    local flySpeed, speedSpeed = tonumber(T.flySpeed) or 1.5, tonumber(T.spoofWalkSpeed) or 5
+    local teleport, jumpUntil = nil, 0
+    local flyGeneration = 0
+    local function syncControls()
+        if o.flyControl then o.flyControl:Set(T.flyEnabled, true) end
+        if o.speedControl then o.speedControl:Set(T.spoofWalkEnabled, true) end
+    end
+    local function stopFly()
+        flyGeneration = flyGeneration+1
+        T.flyEnabled = false
+        if flyConnection then flyConnection:Disconnect(); flyConnection = nil end
+        if flyRoot then pcall(function() flyRoot.Anchored = false end) end
+        if flyHumanoid then pcall(function() flyHumanoid.PlatformStand = false end) end
+        if flyCharacter then pcall(function()
+            local hl = flyCharacter:FindFirstChild("FlyHighlight")
+            if hl then hl:Destroy() end
+        end) end
+        flyRoot, flyHumanoid, flyCharacter = nil, nil, nil
+        jumpUntil = 0
+    end
+    local function stopSpeed()
+        T.spoofWalkEnabled = false
+        if speedConnection then speedConnection:Disconnect(); speedConnection = nil end
+        if speedRoot then pcall(function() speedRoot.Anchored = false end) end
+        speedRoot = nil
+    end
+    function o.stopMovement()
+        stopFly(); stopSpeed(); syncControls()
+    end
+    local function ready(mode)
+        if o.destroyed then return false end
+        if o.fixedTeleportBusy or teleport then Xz("Aguarde o teleporte terminar."); return false end
+        if o.claimFarm and not o.claimFarm(mode) then return false end
+        if o.garage then o.garage.cancel() end
+        if o.travel and o.travel.owner then Xz("Aguarde o deslocamento terminar."); return false end
+        local root, hum = isRoot(), isCValid()
+        if not root or not hum or hum.Health <= 0 then Xz("Aguarde o personagem carregar."); return false end
+        if hum.Sit or hum.SeatPart or root.Anchored then Xz("Saia do assento e aguarde o personagem ser liberado."); return false end
+        return true
+    end
+    local function loadControls()
+        if controls then return end
+        local scripts = LocalPlayer:FindFirstChild("PlayerScripts")
+        local module = scripts and scripts:FindFirstChild("PlayerModule")
+        if module then
+            local ok, result = pcall(function() return require(module):GetControls() end)
+            if ok and result and type(result.GetMoveVector) == "function" then controls = result end
+        end
+    end
+    -- Retorna movimento relativo a camera, preservando a intensidade analogica.
+    function o.flyInput(camera, humanoid)
+        if UserInputService:GetFocusedTextBox() then return Vector3.zero end
+        local input, world = Vector3.zero, false
+        if controls then
+            local ok, value = pcall(controls.GetMoveVector, controls)
+            if ok and typeof(value) == "Vector3" then input = value end
+        end
+        if input.Magnitude < 0.001 then
+            for _, key in ipairs(UserInputService:GetKeysPressed()) do
+                if key.KeyCode == Enum.KeyCode.W then input = input + Vector3.new(0,0,-1)
+                elseif key.KeyCode == Enum.KeyCode.S then input = input + Vector3.new(0,0,1)
+                elseif key.KeyCode == Enum.KeyCode.A then input = input + Vector3.new(-1,0,0)
+                elseif key.KeyCode == Enum.KeyCode.D then input = input + Vector3.new(1,0,0) end
+            end
+            if input.Magnitude < 0.001 and humanoid.MoveDirection.Magnitude > 0 then
+                input, world = humanoid.MoveDirection, true
+            end
+        end
+        local move = world and input or camera.CFrame.RightVector * input.X + camera.CFrame.LookVector * -input.Z
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) or os.clock() < jumpUntil then move = move + Vector3.new(0,1,0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then move = move - Vector3.new(0,1,0) end
+        return move.Magnitude > 1 and move.Unit or move
+    end
+    function o.setFly(value)
+        if value ~= true then stopFly(); syncControls(); return true end
+        if flyConnection then return true end
+        if not ready("fly") then T.flyEnabled = false; syncControls(); return false end
+        stopSpeed()
+        local generation = flyGeneration
+        loadControls()
+        -- require pode ceder a execucao; confirme novamente o personagem.
+        if generation ~= flyGeneration or o.destroyed or o.fixedTeleportBusy or (o.travel and o.travel.owner) then return false end
+        local char, root, hum = LocalPlayer.Character, isRoot(), isCValid()
+        if not char or not root or not hum or hum.Health <= 0 or hum.SeatPart or root.Anchored then return false end
+        flyCharacter, flyRoot, flyHumanoid = char, root, hum
+        local ok, problem = pcall(function()
+            root.Anchored, hum.PlatformStand = true, true
+            local hl = Instance.new("Highlight")
+            hl.Name, hl.FillColor, hl.OutlineColor = "FlyHighlight", Color3.fromRGB(0,255,128), Color3.fromRGB(0,255,0)
+            hl.FillTransparency, hl.Parent = 0.5, char
+            T.flyEnabled = true
+            flyConnection = RunService.RenderStepped:Connect(LPH_NO_VIRTUALIZE(function(dt)
+                if o.destroyed or LocalPlayer.Character ~= char or not root.Parent or hum.Health <= 0 then
+                    stopFly(); syncControls(); return
                 end
-            end
-            if moveDir.Magnitude > 0 then
-                hrp.CFrame = hrp.CFrame + (moveDir.Unit * flySpeed)
-            end
-        end))
-    else
-        if flyConnection then flyConnection:Disconnect() end
-        if hrp then hrp.Anchored = false end
-        if humanoid then humanoid.PlatformStand = false end
-        local highlight = char and char:FindFirstChild("FlyHighlight")
-        if highlight then highlight:Destroy() end
+                local camera = workspace.CurrentCamera
+                if not camera then return end
+                local move = o.flyInput(camera, hum)
+                if move.Magnitude > 0 then
+                    root.CFrame = root.CFrame + move * flySpeed * (math.clamp(dt, 0, 1/15) * 60)
+                end
+            end))
+        end)
+        if not ok then stopFly(); Xz("Fly: " .. tostring(problem)) end
+        syncControls()
+        return ok
     end
-end
-
-local function teleportToPosition(targetPos)
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-    if not (hrp and humanoid) then return end
-    local targetCFrame = CFrame.new(targetPos + Vector3.new(0, 3, 0))
-    local highlight = Instance.new("Highlight")
-    highlight.FillColor = Color3.fromRGB(0, 150, 255)
-    highlight.OutlineColor = Color3.fromRGB(0, 255, 255)
-    highlight.Parent = char
-    task.delay(0.5, function() if highlight then highlight:Destroy() end end)
-    hrp.Anchored = true 
-    humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-    hrp.CFrame = targetCFrame
-    task.wait(0.3)
-    hrp.Anchored = false
-    humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
-end
-
-local function toggleSpeed()
-    speedActive = not speedActive
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-    if not (hrp and humanoid) then return end
-
-    if speedActive then
-        speedConnection = RunService.RenderStepped:Connect(LPH_NO_VIRTUALIZE(function()
-            if not speedActive then return end
-            local char = LocalPlayer.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-            if not hrp or not humanoid then return end
-            
-            local moveDir = humanoid.MoveDirection
-            if moveDir.Magnitude > 0 then
-                hrp.Anchored = false
-                hrp.CFrame = hrp.CFrame + (moveDir * speedSpeed)
-                hrp.Anchored = true
-            else
-                hrp.Anchored = true
+    function o.setSpeed(value)
+        if value ~= true then stopSpeed(); syncControls(); return true end
+        if speedConnection then return true end
+        if not ready("speed") then T.spoofWalkEnabled = false; syncControls(); return false end
+        stopFly()
+        local char, root, hum = LocalPlayer.Character, isRoot(), isCValid()
+        speedRoot, T.spoofWalkEnabled = root, true
+        speedConnection = RunService.RenderStepped:Connect(LPH_NO_VIRTUALIZE(function(dt)
+            if o.destroyed or LocalPlayer.Character ~= char or not root.Parent or hum.Health <= 0 then
+                stopSpeed(); syncControls(); return
             end
+            local move = hum.MoveDirection
+            if not UserInputService:GetFocusedTextBox() and move.Magnitude > 0 then
+                root.Anchored = false
+                root.CFrame = root.CFrame + move * speedSpeed * (math.clamp(dt, 0, 1/15) * 60)
+            end
+            root.Anchored = true
         end))
-    else
-        if speedConnection then speedConnection:Disconnect() end
-        if hrp then hrp.Anchored = false end
+        syncControls()
+        return true
     end
-end
-
-local flyRoot, flyHumanoid, flyCharacter, speedRoot
-local teleportRoot, teleportHumanoid, teleportThread
-
-local function syncControls()
-    if o.flyControl then o.flyControl:Set(T.flyEnabled, true) end
-    if o.speedControl then o.speedControl:Set(T.spoofWalkEnabled, true) end
-end
-
-local function stopFly()
-    if flyActive then pcall(toggleFly) end
-    flyActive, T.flyEnabled = false, false
-    if flyConnection then flyConnection:Disconnect(); flyConnection = nil end
-    if flyRoot then pcall(function() flyRoot.Anchored = false end) end
-    if flyHumanoid then pcall(function() flyHumanoid.PlatformStand = false end) end
-    if flyCharacter then
+    function o.setFlySpeed(value)
+        value = tonumber(value)
+        if value and value == value then flySpeed = math.clamp(value,0.5,10); T.flySpeed = flySpeed end
+    end
+    function o.setSpeedSpeed(value)
+        value = tonumber(value)
+        if value and value == value then speedSpeed = math.clamp(value,0.5,20); T.spoofWalkSpeed = speedSpeed end
+    end
+    local function release(operation)
+        if not operation or operation.released then return end
+        operation.released = true
+        pcall(function() operation.root.Anchored = operation.wasAnchored end)
         pcall(function()
-            local highlight = flyCharacter:FindFirstChild("FlyHighlight")
-            if highlight then highlight:Destroy() end
+            if operation.hum.Parent and operation.hum.Health > 0 then
+                operation.hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+            end
         end)
     end
-    flyRoot, flyHumanoid, flyCharacter = nil, nil, nil
-end
-
-local function stopSpeed()
-    if speedActive then pcall(toggleSpeed) end
-    speedActive, T.spoofWalkEnabled = false, false
-    if speedConnection then speedConnection:Disconnect(); speedConnection = nil end
-    if speedRoot then pcall(function() speedRoot.Anchored = false end) end
-    speedRoot = nil
-end
-
-function o.stopMovement()
-    stopFly()
-    stopSpeed()
-    syncControls()
-end
-
-local function readyToEnable(mode)
-    if o.destroyed then return false end
-    if o.fixedTeleportBusy then Xz("Aguarde o teleporte terminar."); return false end
-    if o.claimFarm and not o.claimFarm(mode) then return false end
-    if o.garage and o.garage.cancel then o.garage.cancel() end
-    if o.travel and o.travel.owner then
-        Xz("Aguarde o deslocamento atual parar e ative novamente.")
-        return false
-    end
-    local root, hum = isRoot(), isCValid()
-    if not root or not hum or hum.Health <= 0 then
-        Xz("Aguarde o personagem carregar.")
-        return false
-    end
-    if hum.Sit or hum.SeatPart then Xz("Saia do assento antes de ativar."); return false end
-    if root.Anchored then Xz("Aguarde o personagem ser liberado."); return false end
-    return true
-end
-
-function o.setFly(value)
-    if value ~= true then stopFly(); syncControls(); return true end
-    if flyActive and not o.destroyed then return true end
-    if not readyToEnable("fly") then T.flyEnabled = false; syncControls(); return false end
-    stopSpeed()
-    flyCharacter, flyRoot, flyHumanoid = LocalPlayer.Character, isRoot(), isCValid()
-    local ok, problem = pcall(toggleFly)
-    if not ok then stopFly(); Xz("Fly: " .. tostring(problem)) end
-    T.flyEnabled = flyActive
-    syncControls()
-    return ok and flyActive
-end
-
-function o.setSpeed(value)
-    if value ~= true then stopSpeed(); syncControls(); return true end
-    if speedActive and not o.destroyed then return true end
-    if not readyToEnable("speed") then T.spoofWalkEnabled = false; syncControls(); return false end
-    stopFly()
-    speedRoot = isRoot()
-    local ok, problem = pcall(toggleSpeed)
-    if not ok then stopSpeed(); Xz("Speed: " .. tostring(problem)) end
-    T.spoofWalkEnabled = speedActive
-    syncControls()
-    return ok and speedActive
-end
-
-function o.setFlySpeed(value)
-    local number = tonumber(value)
-    if not number or number ~= number then return end
-    flySpeed = math.clamp(number, 0.5, 10)
-    T.flySpeed = flySpeed
-end
-
-function o.setSpeedSpeed(value)
-    local number = tonumber(value)
-    if not number or number ~= number then return end
-    speedSpeed = math.clamp(number, 0.5, 20)
-    T.spoofWalkSpeed = speedSpeed
-end
-
-local function releaseTeleport()
-    if teleportRoot then pcall(function() teleportRoot.Anchored = false end) end
-    if teleportHumanoid then
-        pcall(function() teleportHumanoid:ChangeState(Enum.HumanoidStateType.GettingUp) end)
-    end
-    teleportRoot, teleportHumanoid = nil, nil
-end
-
-function o.teleportLocation(targetPos, name)
-    if o.destroyed or o.fixedTeleportBusy then return false end
-    o.fixedTeleportBusy = true
-    teleportThread = coroutine.running()
-    local root, hum, character
-    local ok, moved, reason = pcall(function()
-        if o.config then o.config.cancelPendingLoad() end
-        if o.claimFarm then o.claimFarm("teleport") else o.stopMovement() end
-        if o.garage and o.garage.cancel then o.garage.cancel() end
-        local deadline = os.clock() + 2
-        while o.travel and o.travel.owner and not o.destroyed and os.clock() < deadline do
-            task.wait(0.05)
+    -- Destino e a posicao exata da raiz. Apenas a UI de locais adiciona +3 studs.
+    -- A mesma operacao atende locais, coleta, lixeiro e garagem, sem desativar colisoes.
+    function o.teleportDirect(target, active)
+        if teleport or o.destroyed then return false, "Outro teleporte esta em andamento." end
+        if typeof(target) ~= "Vector3" or target.X ~= target.X or target.Y ~= target.Y or target.Z ~= target.Z
+            or math.abs(target.X)+math.abs(target.Y)+math.abs(target.Z) == math.huge then
+            return false, "Destino invalido."
         end
-        if o.destroyed then return false end
-        if o.travel and o.travel.owner then return false, "Aguarde o deslocamento atual terminar." end
-        root, hum, character = isRoot(), isCValid(), LocalPlayer.Character
-        if not root or not hum or hum.Health <= 0 then return false, "Aguarde o personagem carregar." end
-        if hum.Sit or hum.SeatPart then return false, "Saia do assento antes de teleportar." end
-        if root.Anchored then return false, "Aguarde o personagem ser liberado." end
-        teleportRoot, teleportHumanoid = root, hum
-        o.travelBusy = true
-        teleportToPosition(targetPos)
-        teleportRoot, teleportHumanoid = nil, nil
-        if o.destroyed or LocalPlayer.Character ~= character then return false end
-        return true
-    end)
-    if not ok then releaseTeleport() end
-    teleportThread = nil
-    o.fixedTeleportBusy = false
-    if not (o.travel and o.travel.owner) then o.travelBusy = false end
-    if not o.destroyed then
-        if not ok then Xz("Teleporte: " .. tostring(moved))
-        elseif moved then Xz("Teleporte executado: " .. tostring(name or "destino"))
-        elseif reason then Xz(reason) end
+        local char, root, hum = LocalPlayer.Character, isRoot(), isCValid()
+        if not root or not hum or hum.Health <= 0 then return false, "Personagem indisponivel." end
+        if root.Anchored or hum.Sit or hum.SeatPart then return false, "Personagem preso ou sentado." end
+        local op = {root=root, hum=hum, wasAnchored=root.Anchored, cancelled=false}
+        teleport = op
+        local function running()
+            return not op.cancelled and not o.destroyed and LocalPlayer.Character == char
+                and root.Parent and hum.Parent and hum.Health > 0 and (not active or active())
+        end
+        local ok, moved, reason = pcall(function()
+            if not running() then return false, "Teleporte cancelado." end
+            root.AssemblyLinearVelocity, root.AssemblyAngularVelocity = Vector3.zero, Vector3.zero
+            root.Anchored = true
+            hum:ChangeState(Enum.HumanoidStateType.Physics)
+            root.CFrame = CFrame.new(target)
+            local deadline = os.clock()+0.3
+            repeat
+                task.wait(0.05)
+                if not running() then return false, "Teleporte cancelado." end
+            until os.clock() >= deadline
+            release(op)
+            task.wait(0.2)
+            if not running() then return false, "Teleporte cancelado." end
+            if (root.Position-target).Magnitude > 6 then return false, "O jogo recusou o teleporte." end
+            return true
+        end)
+        release(op)
+        if teleport == op then teleport = nil end
+        if not ok then return false, "Falha no teleporte: "..tostring(moved) end
+        return moved, reason
     end
-    return ok and moved == true
-end
-
-function o.cleanupMovement()
-    o.stopMovement()
-    local pending = teleportThread
-    teleportThread = nil
-    if pending and pending ~= coroutine.running() and type(task.cancel) == "function" then
-        pcall(task.cancel, pending)
+    function o.teleportLocation(target, name)
+        if o.destroyed or o.fixedTeleportBusy then return false end
+        o.fixedTeleportBusy = true
+        local ok, moved, reason = pcall(function()
+            if o.config then o.config.cancelPendingLoad() end
+            if o.claimFarm then o.claimFarm("teleport") else o.stopMovement() end
+            if o.garage then o.garage.cancel() end
+            local deadline = os.clock()+2
+            while o.travel and o.travel.owner and not o.destroyed and os.clock()<deadline do task.wait(0.05) end
+            if o.travel and o.travel.owner then return false, "Aguarde o deslocamento terminar." end
+            o.travelBusy = true
+            return o.teleportDirect(target+Vector3.new(0,3,0))
+        end)
+        o.fixedTeleportBusy = false
+        if not (o.travel and o.travel.owner) then o.travelBusy = false end
+        if not ok then reason, moved = tostring(moved), false end
+        if not o.destroyed then Xz(moved and ("Teleporte executado: "..tostring(name or "destino")) or reason or "Teleporte cancelado.") end
+        return moved == true, reason
     end
-    releaseTeleport()
-    o.fixedTeleportBusy = false
-    if not (o.travel and o.travel.owner) then o.travelBusy = false end
-end
-
-handleReady(LocalPlayer.CharacterRemoving:Connect(function()
-    o.cleanupMovement()
-end))
+    function o.cleanupMovement()
+        o.stopMovement()
+        if teleport then teleport.cancelled = true; release(teleport) end
+    end
+    handleReady(UserInputService.JumpRequest:Connect(function()
+        if T.flyEnabled then jumpUntil = os.clock()+0.25 end
+    end))
+    handleReady(LocalPlayer.CharacterRemoving:Connect(function() o.cleanupMovement() end))
 end
 
 -- Constante mantida para as rotinas antigas de coleta.
 local D = 16
 local function isUpdateInstancePropertiesEValid()
-    local ac = o.acRuntime
-    return ac ~= nil and not ac.destroyed and (ac.acSilenciados or 0) > 0
-        and (ac.acMotivosVivos == nil or #ac.acMotivosVivos == 0)
+    return false -- Sem interceptar protecoes para alterar o limite do carro.
 end
 
 -- JumpPower: impulso no pulo nativo, sem escrever propriedades do Humanoid.
@@ -1641,7 +1532,7 @@ do
                 workspace.CurrentCamera.CameraSubject = fakeHumanoid
             end
         end)
-        RunService:BindToRenderStep("VeteranoGhostCameraFix", Enum.RenderPriority.Last.Value, LPH_NO_VIRTUALIZE(updateCameraAndGhost))
+        RunService:BindToRenderStep("VeteranoGhostCameraFix", Enum.RenderPriority.Last.Value, LPH_NO_VIRTUALIZE(function(...) return updateCameraAndGhost(...) end))
     end
 
     o.startGhost = startGhost
@@ -2300,7 +2191,8 @@ do
         overlay.ResetOnSpawn = false
         overlay.DisplayOrder = 2
         overlay.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-        pcall(function() overlay.ScreenInsets = Enum.ScreenInsets.None end)
+        pcall(function() overlay.ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets end)
+        pcall(function() overlay.SafeAreaCompatibility = Enum.SafeAreaCompatibility.None end)
         if type(protect_gui) == "function" then pcall(protect_gui, overlay) end
         overlay.Parent = parent
         return overlay
@@ -2754,18 +2646,6 @@ local function XF(plr, b2, cam, myPos, now)
             b2.item.Visible = true
         else b2.item.Visible = false end
     elseif b2.item then b2.item.Visible = false end
-    if T.tracer then
-        local tr = oF(b2)
-        if tr then
-            local vp = cam.ViewportSize
-            local finish = anyOnScreen and Vector2.new((minX + maxX) * 0.5, (minY + maxY) * 0.5) or screenPos
-            if vp.X > 0 and vp.Y > 0 then
-                local endpoint = Vector2.new(math.clamp(finish.X, 0, vp.X), math.clamp(finish.Y, 0, vp.Y))
-                o.renderESPLine(tr, Vector2.new(vp.X * 0.5, 4), endpoint,
-                    b2.relationshipColor or Color3.fromRGB(170, 70, 255), 1.4)
-            else tr.Visible = false end
-        end
-    elseif b2.tracer then b2.tracer.Visible = false end
     if T.box3d then
         local lines = fF(b2)
         for i, pr in ipairs(Kz) do
@@ -2805,8 +2685,30 @@ handleReady(Players.PlayerRemoving:Connect(function(plr)
     if b2 then qF(b2); T.bundles[plr] = nil end
 end))
 
+-- WorldToViewportPoint e DeviceSafeInsets usam a mesma origem no mobile.
+local function updateHeadTracer(plr,bundle,cam,myPos)
+    local char=plr.Character
+    local head=char and char:FindFirstChild("Head")
+    local hum=char and char:FindFirstChildOfClass("Humanoid")
+    if not T.tracer or not head or not head:IsA("BasePart") or not hum or hum.Health<=0
+        or (head.Position-myPos).Magnitude>T.maxDistance then
+        if bundle.tracer then bundle.tracer.Visible=false end
+        return
+    end
+    local point,visible=cam:WorldToViewportPoint(head.Position)
+    local vp=cam.ViewportSize
+    if not visible or point.Z<=0 or vp.X<=0 or vp.Y<=0 then
+        if bundle.tracer then bundle.tracer.Visible=false end
+        return
+    end
+    local line=oF(bundle)
+    if line then o.renderESPLine(line,Vector2.new(vp.X*0.5,4),Vector2.new(point.X,point.Y),
+        bundle.relationshipColor or Color3.fromRGB(170,70,255),1.4) end
+end
 local BF = false
-handleReady(RunService.RenderStepped:Connect(LPH_NO_VIRTUALIZE(function()
+do
+local binding="VeteranoESPHead_"..tostring(LocalPlayer.UserId)
+RunService:BindToRenderStep(binding,Enum.RenderPriority.Camera.Value+1,LPH_NO_VIRTUALIZE(function()
     if not T.espEnabled then
         if BF then PF_all() end
         BF = false
@@ -2829,6 +2731,7 @@ handleReady(RunService.RenderStepped:Connect(LPH_NO_VIRTUALIZE(function()
                 if ok then b2 = res end
                 budget = budget - 1
             end
+            if b2 then updateHeadTracer(plr,b2,cam,myPos) end
             if b2 and now >= b2.nextVisualUpdate then
                 local ok = pcall(XF, plr, b2, cam, myPos, now)
                 if not ok then
@@ -2838,7 +2741,9 @@ handleReady(RunService.RenderStepped:Connect(LPH_NO_VIRTUALIZE(function()
             end
         end
     end
-end)))
+end))
+handleReady({Disconnect=function() RunService:UnbindFromRenderStep(binding) end})
+end
 
 -- ============================================================
 -- AIMBOT
@@ -3032,15 +2937,22 @@ do
         if not root or not position or not prompt.Enabled then return false end
         if (root.Position - position).Magnitude > prompt.MaxActivationDistance then return false end
         if active and not active() then return false end
-        if not nativeOnly and type(fireproximityprompt) == "function" then
-            local sent = pcall(fireproximityprompt, prompt, math.max(0.1, prompt.HoldDuration))
-            if sent then return true end
+        if prompt.RequiresLineOfSight then
+            local ray = RaycastParams.new()
+            ray.FilterType = Enum.RaycastFilterType.Exclude
+            ray.FilterDescendantsInstances = {LocalPlayer.Character}
+            local hit = workspace:Raycast(root.Position, position-root.Position, ray)
+            local parent = prompt.Parent
+            if parent and parent:IsA("Attachment") then parent = parent.Parent end
+            if hit and parent and hit.Instance ~= parent and not hit.Instance:IsDescendantOf(parent) then return false end
         end
         local began = pcall(function() prompt:InputHoldBegin() end)
         if not began then return false end
         local deadline = os.clock() + math.max(prompt.HoldDuration, 0) + 0.1
         repeat
-            if not prompt.Parent or not prompt.Enabled or (active and not active()) then
+            local currentRoot, currentPosition = isRoot(), I.position(prompt)
+            if not currentRoot or not currentPosition or (currentRoot.Position-currentPosition).Magnitude > prompt.MaxActivationDistance
+                or not prompt.Parent or not prompt.Enabled or (active and not active()) then
                 pcall(function() prompt:InputHoldEnd() end)
                 return false
             end
@@ -3059,44 +2971,75 @@ do
         return true
     end
 
-    local M = { owner = nil, token = 0 }
+    -- Procura chao e volume livre perto do alvo; nunca desliga CanCollide.
+    function o.findLanding(position, reach, target, preferred)
+        local root, hum, char = isRoot(), isCValid(), LocalPlayer.Character
+        if not root or not hum or not char or not position then return nil end
+        reach = math.max(0, tonumber(reach) or 10)
+        if reach < 0.5 then return nil end
+        local hip = hum.HipHeight + root.Size.Y*0.5
+        if hum.RigType == Enum.HumanoidRigType.R6 then hip = hip+2 end
+        hip = math.clamp(hip, 2.5, 6)
+        local ray = RaycastParams.new()
+        ray.FilterType = Enum.RaycastFilterType.Exclude
+        ray.FilterDescendantsInstances = target and {char,target} or {char}
+        ray.RespectCanCollide = true
+        local overlap = OverlapParams.new()
+        overlap.FilterType = Enum.RaycastFilterType.Exclude
+        overlap.FilterDescendantsInstances = {char}
+        overlap.RespectCanCollide = true
+        overlap.CollisionGroup = root.CollisionGroup
+        local points = {}
+        if preferred then points[#points+1] = preferred end
+        points[#points+1] = position
+        for _, radius in ipairs({math.min(3,reach*0.45), math.min(6,reach*0.75), reach*0.9}) do
+            for i=0,7 do
+                local angle = i*math.pi/4
+                points[#points+1] = position+Vector3.new(math.cos(angle)*radius,0,math.sin(angle)*radius)
+            end
+        end
+        for _, point in ipairs(points) do
+            local ground = workspace:Raycast(point+Vector3.new(0,6,0),Vector3.new(0,-22,0),ray)
+            if ground and ground.Normal.Y >= 0.65 then
+                local landing = Vector3.new(point.X,ground.Position.Y+hip+0.15,point.Z)
+                if (landing-position).Magnitude <= reach and landing.Y > workspace.FallenPartsDestroyHeight+10 then
+                    local size = Vector3.new(math.max(2.5,root.Size.X+0.5), hip+2, math.max(2,root.Size.Z+0.5))
+                    local center = landing+Vector3.new(0,(2-hip)*0.5+0.2,0)
+                    local blocked = false
+                    for _, part in ipairs(workspace:GetPartBoundsInBox(CFrame.new(center),size,overlap)) do
+                        if part.CanCollide then blocked = true; break end
+                    end
+                    if not blocked then return landing end
+                end
+            end
+        end
+        return nil
+    end
+
+    local M = {owner=nil, token=0}
     o.travel = M
     function M.cancel(owner)
-        if owner == nil or owner == M.owner then M.token = M.token + 1 end
+        if owner == nil or owner == M.owner then M.token = M.token+1 end
     end
     function M.to(owner, destination, active)
-        if M.owner or o.fixedTeleportBusy then return false, "Outro deslocamento esta em andamento." end
-        local char, root, hum = LocalPlayer.Character, isRoot(), isCValid()
-        if not char or not root or not hum or hum.Health <= 0 then return false, "Personagem indisponivel." end
-        if hum.SeatPart then return false, "Saia do assento antes do deslocamento." end
-        if T.flyEnabled or T.spoofWalkEnabled or T.ghostEnabled then return false, "Desative Fly, Speed e Ghost antes do deslocamento." end
-        M.owner, M.token = owner, M.token + 1
+        if M.owner or o.fixedTeleportBusy then return false,"Outro deslocamento esta em andamento." end
+        if T.noclipEnabled or T.noclipCarEnabled or T.vFlyEnabled then return false,"Desative o noclip antes do deslocamento." end
+        if T.flyEnabled or T.spoofWalkEnabled or T.ghostEnabled then return false,"Desative Fly, Speed e Ghost antes do deslocamento." end
+        M.owner, M.token, o.travelBusy = owner, M.token+1, true
         local token = M.token
-        o.travelBusy = true
-        o.noclip.acquire("travel")
-        local function running()
-            return not o.destroyed and M.token == token and char == LocalPlayer.Character
-                and root.Parent and hum.Health > 0 and (not active or active())
-        end
-        local function getDestination()
-            if type(destination) == "function" then return destination() end
-            return destination
-        end
-        local ok, success, message = pcall(function()
-            local first = getDestination()
-            if not first then return false, "Destino indisponivel." end
-            if not running() or not o.teleportCharacter(CFrame.new(first)) then return false, "TP indisponivel." end
-            task.wait(0.25)
-            if not running() then return false, "TP cancelado." end
-            if (root.Position - first).Magnitude > 6 then return false, "O jogo recusou o TP direto." end
-            return true
+        local function running() return not o.destroyed and M.token==token and (not active or active()) end
+        local ok, moved, reason = pcall(function()
+            if not running() then return false,"Deslocamento cancelado." end
+            local position = destination
+            if type(destination)=="function" then position = destination() end
+            if not position then return false,"Destino indisponivel." end
+            return o.teleportDirect(position,running)
         end)
-        if root.Parent then root.AssemblyLinearVelocity, root.AssemblyAngularVelocity = Vector3.zero, Vector3.zero end
-        o.noclip.release("travel")
         M.owner, o.travelBusy = nil, false
-        if not ok then return false, "Falha no deslocamento: " .. tostring(success) end
-        return success, message
+        if not ok then return false,"Falha no deslocamento: "..tostring(moved) end
+        return moved,reason
     end
+
 end
 
 -- ============================================================
@@ -3481,7 +3424,7 @@ do
     o.listDrops, o.isWeaponObject, o.inventoryWeaponSnapshot = refreshDrops, weapon, snapshot
     local function returnToBase(active)
         status("Arma recebida; retornando ao hospital...")
-        local returned, reason = o.teleportLocation(POSICAO_RETORNO, "Hospital")
+        local returned, reason = o.travel.to("collection", POSICAO_RETORNO+Vector3.new(0,3,0), active)
         if not returned then
             status("Falha no retorno: " .. (reason or "TP recusado"))
         else
@@ -3494,138 +3437,149 @@ do
         if not prompt or not prompt.Parent then prompt = target.item:FindFirstChildWhichIsA("ProximityPrompt", true) end
         if prompt and prompt.Enabled then return o.interact.prompt(prompt, active, nativeOnly) end
         local click = target.item:FindFirstChildWhichIsA("ClickDetector", true)
-        if click and type(fireclickdetector) == "function" then return pcall(fireclickdetector, click) end
+        local currentRoot = isRoot()
+        if not currentRoot or (active and not active()) then return false end
+        if click and type(fireclickdetector) == "function" and (currentRoot.Position-target.parte.Position).Magnitude <= click.MaxActivationDistance then
+            return pcall(fireclickdetector, click)
+        end
         local handle = target.item:FindFirstChild("Handle", true) or target.parte
         local root = isRoot()
-        if root and handle and type(firetouchinterest) == "function" then
+        if root and handle and (root.Position-handle.Position).Magnitude <= 5 and type(firetouchinterest) == "function" then
             pcall(firetouchinterest, root, handle, 0); task.wait(0.1)
             return pcall(firetouchinterest, root, handle, 1)
         end
         return false
     end
     GF = function(target, checkDone, pullOverride)
-        if o.collectionBusy then return false, "Aguarde a acao atual." end
-        if not target or not target.item or not target.parte or not target.item.Parent or not target.parte.Parent then
-            return false, "Item indisponivel."
-        end
-
-        local snapshotOK, before = pcall(snapshot)
-        if not snapshotOK then return false, "Inventario indisponivel: " .. tostring(before) end
-
-        o.collectionBusy = true
-        o.itemTeleportRunId = o.itemTeleportRunId + 1
-        local run, char = o.itemTeleportRunId, LocalPlayer.Character
-        local interacted = false
-
-        local function received()
-            if checkDone then return checkDone() end
-            return gained(before) or (interacted and not target.item.Parent)
-        end
-
-        local ok, success, message = pcall(function()
-            status("Coletando " .. tostring(target.nome or target.item.Name))
-
-            if not checkDone and (pullOverride == true or (pullOverride == nil and T.pullWeaponsEnabled)) then
-                local root = isRoot()
-                if not root then return false, "Personagem indisponivel." end
-                local point = root.Position + root.CFrame.LookVector * 3 + Vector3.new(0, -1, 0)
-                local moved, why = o.worldMove.toPosition(target.item, target.parte, point, nil)
-                if not moved then return false, why end
-            else
-                local root = isRoot()
-                if not root then return false, "Personagem indisponivel." end
-                local prompt = target.prompt or target.item:FindFirstChildWhichIsA("ProximityPrompt", true)
-                local position = prompt and o.interact.position(prompt) or target.parte.Position
-                if not position then return false, "Posicao da arma indisponivel." end
-                local above = target.parte.Size.Y * 0.5 + 2.5
-                if prompt then above = math.min(above, prompt.MaxActivationDistance * 0.5) end
-                local destination = position + Vector3.new(0, above, 0)
-
-                local arrived = o.teleportLocation(destination, "Arma")
-                if not arrived then return false, "TP para a arma falhou." end
-
-                o.fixedTeleportBusy = false
-                o.travelBusy = false
-                task.wait(0.25)
-            end
-
-            local root2 = isRoot()
-            if not root2 then return false, "Personagem indisponivel." end
-
-            local prompt = target.prompt or target.item:FindFirstChildWhichIsA("ProximityPrompt", true)
-            local click  = target.item:FindFirstChildWhichIsA("ClickDetector", true)
-            local handle = target.item:FindFirstChild("Handle", true) or target.parte
-
-            for attempt = 1, 4 do
-                if received() or not target.item.Parent then break end
-
-                local used = false
-
-                if prompt and prompt.Parent and prompt.Enabled then
-                    if type(fireproximityprompt) == "function" then
-                        if pcall(fireproximityprompt, prompt, prompt.HoldDuration or 0) then used = true end
-                    end
-                    if not used then
-                        if pcall(function()
-                            prompt:InputHoldBegin()
-                            task.wait(math.max(0.05, prompt.HoldDuration or 0))
-                            prompt:InputHoldEnd()
-                        end) then used = true end
-                    end
-                end
-
-                if not used and click and type(fireclickdetector) == "function" then
-                    if pcall(fireclickdetector, click) then used = true end
-                end
-
-                if not used and type(firetouchinterest) == "function" and root2 and handle then
-                    pcall(firetouchinterest, root2, handle, 0)
-                    task.wait(0.08)
-                    pcall(firetouchinterest, root2, handle, 1)
-                    used = true
-                end
-
-                if used then
-                    interacted = true
-                    local ack = os.clock() + 0.5
-                    while os.clock() < ack do
-                        if received() then break end
-                        if not target.item.Parent then interacted = true; break end
-                        task.wait(0.05)
-                    end
-                end
-
-                task.wait(0.15)
-            end
-
-            if not received() then
-                return false, "O jogo nao confirmou a arma nos dados do inventario."
-            end
-
-            inventoryBaseline = snapshot()
-
-            if not checkDone and T.returnOnWeaponPickup ~= false then
-                status("Arma coletada! Retornando ao hospital...")
-                task.wait(0.3)
-                local returned = o.teleportLocation(POSICAO_RETORNO, "Hospital")
-                if not returned then return false, "Falha ao retornar ao hospital." end
-                o.fixedTeleportBusy = false
-                o.travelBusy = false
-            end
-
-            return true, "Arma coletada com sucesso."
-        end)
-
-        o.collectionBusy = false
-        if not ok then
-            status("Falha na coleta: " .. tostring(success))
-            return false, o.coletaStatus
-        end
-        if not success then
-            status(message or "Coleta interrompida")
-        end
-        return success, message
+    if o.collectionBusy then return false, "Aguarde a acao atual." end
+    if not target or not target.item or not target.parte or not target.item.Parent or not target.parte.Parent then
+        return false, "Item indisponivel."
     end
+
+    local snapshotOK, before = pcall(snapshot)
+    if not snapshotOK then return false, "Inventario indisponivel: " .. tostring(before) end
+
+    o.collectionBusy = true
+    o.itemTeleportRunId = o.itemTeleportRunId + 1
+    local run, char = o.itemTeleportRunId, LocalPlayer.Character
+    local interacted = false
+
+    local function received()
+        if checkDone then return checkDone() end
+        return gained(before) or (interacted and not target.item.Parent)
+    end
+
+    local ok, success, message = pcall(function()
+        status("Coletando " .. tostring(target.nome or target.item.Name))
+
+        -- 1. Puxar arma (se ativado)
+        if not checkDone and (pullOverride == true or (pullOverride == nil and T.pullWeaponsEnabled)) then
+            local root = isRoot()
+            if not root then return false, "Personagem indisponivel." end
+            local point = root.Position + root.CFrame.LookVector * 3 + Vector3.new(0, -1, 0)
+            local moved, why = o.worldMove.toPosition(target.item, target.parte, point, nil)
+            if not moved then return false, why end
+        else
+            -- 2. TP até a arma
+            local root = isRoot()
+            if not root then return false, "Personagem indisponivel." end
+            local prompt = target.prompt or target.item:FindFirstChildWhichIsA("ProximityPrompt", true)
+            local position = prompt and o.interact.position(prompt) or target.parte.Position
+            if not position then return false, "Posicao da arma indisponivel." end
+            local above = target.parte.Size.Y * 0.5 + 2.5
+            if prompt then above = math.min(above, prompt.MaxActivationDistance * 0.5) end
+            local destination = position + Vector3.new(0, above, 0)
+
+            local arrived = o.teleportLocation(destination, "Arma")
+            if not arrived then return false, "TP para a arma falhou." end
+
+            -- 🔥 RESET MANUAL do TP (essencial) + delay curto
+            o.fixedTeleportBusy = false
+            o.travelBusy = false
+            task.wait(0.25)
+        end
+
+        local root2 = isRoot()
+        if not root2 then return false, "Personagem indisponivel." end
+
+        -- 3. Interação rápida (menos tentativas, menos delay)
+        local prompt = target.prompt or target.item:FindFirstChildWhichIsA("ProximityPrompt", true)
+        local click  = target.item:FindFirstChildWhichIsA("ClickDetector", true)
+        local handle = target.item:FindFirstChild("Handle", true) or target.parte
+
+        for attempt = 1, 4 do
+            if received() or not target.item.Parent then break end
+
+            local used = false
+
+            if prompt and prompt.Parent and prompt.Enabled then
+                if type(fireproximityprompt) == "function" then
+                    if pcall(fireproximityprompt, prompt, prompt.HoldDuration or 0) then used = true end
+                end
+                if not used then
+                    if pcall(function()
+                        prompt:InputHoldBegin()
+                        task.wait(math.max(0.05, prompt.HoldDuration or 0))
+                        prompt:InputHoldEnd()
+                    end) then used = true end
+                end
+            end
+
+            if not used and click and type(fireclickdetector) == "function" then
+                if pcall(fireclickdetector, click) then used = true end
+            end
+
+            if not used and type(firetouchinterest) == "function" and root2 and handle then
+                pcall(firetouchinterest, root2, handle, 0)
+                task.wait(0.08)
+                pcall(firetouchinterest, root2, handle, 1)
+                used = true
+            end
+
+            if used then
+                interacted = true
+                -- Confirmação rápida (500ms em vez de 2s)
+                local ack = os.clock() + 0.5
+                while os.clock() < ack do
+                    if received() then break end
+                    if not target.item.Parent then interacted = true; break end
+                    task.wait(0.05)
+                end
+            end
+
+            -- Delay curto entre tentativas (150ms em vez de 400ms)
+            task.wait(0.15)
+        end
+
+        if not received() then
+            return false, "O jogo nao confirmou a arma nos dados do inventario."
+        end
+
+        inventoryBaseline = snapshot()
+
+        -- 4. Retorno ao hospital (delay curto)
+        if not checkDone and T.returnOnWeaponPickup ~= false then
+            status("Arma coletada! Retornando ao hospital...")
+            task.wait(0.3)
+            local returned = o.teleportLocation(POSICAO_RETORNO, "Hospital")
+            if not returned then return false, "Falha ao retornar ao hospital." end
+            o.fixedTeleportBusy = false
+            o.travelBusy = false
+        end
+
+        return true, "Arma coletada com sucesso."
+    end)
+
+    o.collectionBusy = false
+    if not ok then
+        status("Falha na coleta: " .. tostring(success))
+        return false, o.coletaStatus
+    end
+    if not success then
+        status(message or "Coleta interrompida")
+    end
+    return success, message
+end
     o.coletarItem = GF
     function o.stopAutoColeta()
         T.autoColetaEnabled = false
@@ -4034,8 +3988,9 @@ do
     end
     local function inRange(root, part, prompt)
         if not root or not part or not part.Parent then return false end
-        local maxD = prompt and math.max(2.5, prompt.MaxActivationDistance - 0.65) or 4.25
-        return (root.Position - part.Position).Magnitude <= maxD
+        local maxD = prompt and math.max(0, prompt.MaxActivationDistance - 0.5) or 4.25
+        local position = prompt and o.interact.position(prompt) or part.Position
+        return position ~= nil and (root.Position - position).Magnitude <= maxD
     end
     local function teleportTo(part, prompt, runId)
         local root = isRoot()
@@ -4043,37 +3998,38 @@ do
         if inRange(root, part, prompt) then return true end
         local position = prompt and o.interact.position(prompt) or part.Position
         if not position then return false end
-        local above = math.min(part.Size.Y * 0.5 + 2.5, prompt and prompt.MaxActivationDistance * 0.6 or 3)
-        local moved, reason = o.travel.to("garbage", position + Vector3.new(0, above, 0), function()
+        local destination = o.findLanding(position,prompt and prompt.MaxActivationDistance-0.65 or 4.25,part)
+        if not destination then setFarmStatus("Sem chao ou espaco livre perto do lixo."); return false end
+        local moved, reason = o.travel.to("garbage", destination, function()
             return isRun(runId) and part.Parent ~= nil and (not prompt or prompt.Parent ~= nil)
         end)
-        if not moved then setFarmStatus(reason or "TP interrompido"); return false end
+        if not moved then
+            setFarmStatus(reason or "TP interrompido")
+            if isRun(runId) then
+                T.autoFarmLixeiroEnabled = false
+                if o.lixeiroControl then o.lixeiroControl:Set(false,true) end
+                Xz("Lixeiro pausado: "..o.garbageFarmStatus)
+            end
+            return false
+        end
         return inRange(isRoot(), part, prompt)
     end
-    local function firePrompt(prompt, force)
-        if not prompt or not prompt.Parent or not prompt.Enabled then return false end
-        if not force and type(fireproximityprompt) == "function" then
-            return pcall(fireproximityprompt, prompt, 0)
-        end
-        return pcall(function()
-            prompt:InputHoldBegin()
-            task.wait(math.max(0.15, prompt.HoldDuration + 0.1))
-            prompt:InputHoldEnd()
-        end)
+    local function firePrompt(prompt, runId)
+        return o.interact.prompt(prompt,function() return isRun(runId) end,true)
     end
     local function collectOne(part, prompt, runId)
         local before = getLixoCount()
         for attempt = 1, 3 do
             if not isRun(runId) or not isLixoPart(part, prompt) then
-                return not part.Parent or part.Transparency >= 0.95
+                return getLixoCount() > before
             end
             local root = isRoot()
             if not inRange(root, part, prompt) then return false end
-            firePrompt(prompt, attempt > 1)
+            firePrompt(prompt, runId)
             local deadline = os.clock() + 2.75
             repeat
                 if not isRun(runId) then return false end
-                if not part.Parent or part.Transparency >= 0.95 or getLixoCount() > before then return true end
+                if getLixoCount() > before then return true end
                 task.wait(0.1)
             until os.clock() >= deadline
         end
@@ -4100,7 +4056,7 @@ do
         local beforeMoney = getMoneySafe()
         for attempt = 1, 3 do
             if not isRun(runId) then return false end
-            firePrompt(prompt, attempt > 1)
+            firePrompt(prompt, runId)
             local deadline = os.clock() + 4
             repeat
                 if not isRun(runId) then return false end
@@ -4130,22 +4086,28 @@ do
             Xz(o.garbageFarmStatus)
             return
         end
+        local retryAfter = setmetatable({}, {__mode="k"})
         while isRun(runId) do
             if not trySelectLixeiro(runId) then
                 wait2(2, runId)
             else
                 local goal = math.clamp(math.floor(tonumber(T.autoFarmLixeiroQuantidade) or 20), 1, 20)
-                local collected = 0
+                local collected = getLixoCount()
                 while isRun(runId) and getTeam() == "Lixeiro" and collected < goal do
                     local list = scanLixos()
                     if #list == 0 then
                         setFarmStatus(string.format("Coletados %d/%d; aguardando...", collected, goal))
                         wait2(1.25, runId)
                     else
-                        local target = list[1]
+                        local target
+                        for _, item in ipairs(list) do
+                            if (retryAfter[item.parte] or 0) <= os.clock() then target=item; break end
+                        end
+                        if not target then wait2(1,runId); continue end
+                        retryAfter[target.parte] = os.clock()+8
                         if teleportTo(target.parte, target.prompt, runId) then
                             if collectOne(target.parte, target.prompt, runId) then
-                                collected = collected + 1
+                                collected = getLixoCount()
                                 wait2(0.45, runId)
                             else
                                 if not isRun(runId) then break end
@@ -4347,10 +4309,6 @@ do
             return false, "Aguardando personagem disponivel"
         end
         if reach <= 0 or reach ~= reach or reach == math.huge then return false, "Interacao sem alcance" end
-        local ac = o.acRuntime
-        if not ac or ac.destroyed or ac.acAplicando or (ac.acSilenciados or 0) <= 0 then
-            return false, "Aguardando rotina de movimento"
-        end
         local destination = position - Vector3.new(0, math.min(BELOW_DEPTH, reach), 0)
         if destination.Y <= workspace.FallenPartsDestroyHeight + 10 then
             return false, "Destino abaixo do limite do mapa"
@@ -5076,7 +5034,7 @@ local function Wz(dt)
         if not T.flyEnabled then pcall(ez) end
     end
 end
-handleReady(RunService.Heartbeat:Connect(LPH_NO_VIRTUALIZE(Wz)))
+handleReady(RunService.Heartbeat:Connect(LPH_NO_VIRTUALIZE(function(...) return Wz(...) end)))
 handleReady(RunService.Stepped:Connect(LPH_NO_VIRTUALIZE(function()
     if not o.destroyed then pcall(o.noclip.step) end
 end)))
@@ -5094,7 +5052,10 @@ do
     local function active()
         return not o.destroyed and (not G.busy or G.cancelToken == G.actionToken)
     end
-    function G.cancel() G.cancelToken = G.cancelToken + 1 end
+    function G.cancel()
+        G.cancelToken = G.cancelToken+1
+        if o.travel then o.travel.cancel("garage") end
+    end
 
     local function valid(record)
         return record and record.car.Parent and record.seat.Parent and record.root.Parent
@@ -5234,7 +5195,19 @@ do
     end
 
     local function moveCharacter(cf)
-        return o.teleportCharacter(cf)
+        return o.travel.to("garage",cf.Position,active)
+    end
+    local function besideCar(record)
+        if not valid(record) then return nil end
+        local cf, size = record.car:GetBoundingBox()
+        local reach = math.max(size.X,size.Z)*0.5+10
+        for _, offset in ipairs({Vector3.new(-size.X*0.5-3,0,0),Vector3.new(size.X*0.5+3,0,0),
+            Vector3.new(0,0,-size.Z*0.5-3),Vector3.new(0,0,size.Z*0.5+3)}) do
+            local point = cf:PointToWorldSpace(offset)
+            local destination = o.findLanding(point,4,nil,point)
+            if destination and (destination-record.seat.Position).Magnitude <= reach then return destination end
+        end
+        return nil
     end
 
     local function leaveSeat(hum)
@@ -5272,8 +5245,10 @@ do
         if hum.SeatPart == record.seat then return true end
         if not leaveSeat(hum) then return false, "Nao foi possivel sair do assento atual." end
         if not active() then return false, "Acao interrompida." end
-        moveCharacter(record.seat.CFrame * CFrame.new(-4, 2, 0))
-        task.wait(0.12)
+        local position = besideCar(record)
+        if not position then return false,"Sem espaco livre ao lado do carro." end
+        local moved, reason = moveCharacter(CFrame.new(position))
+        if not moved then return false,reason end
         if not valid(record) or not active() then return false, "O carro nao esta disponivel." end
         record.seat:Sit(hum)
         local deadline = os.clock() + 1.6
@@ -5345,8 +5320,11 @@ do
         local hum = isCValid()
         if not hum or not leaveSeat(hum) then return false, "Saia do assento antes de teleportar." end
         if not valid(record) or not active() then return false, "O carro nao esta disponivel." end
-        moveCharacter(record.seat.CFrame * CFrame.new(-6, 2, 0))
-        return true, "Voce esta ao lado do carro selecionado."
+        local position = besideCar(record)
+        if not position then return false,"Sem espaco livre ao lado do carro." end
+        local moved, reason = o.travel.to("garage",position,function() return active() and valid(record) and G.isEligible(record) end)
+        if not moved then return false,reason end
+        return true,"Voce esta ao lado do carro selecionado."
     end
 
     function G.enter()
@@ -5404,13 +5382,21 @@ do
 
     function G.run(action)
         if G.busy or o.destroyed then Xz("Aguarde a acao atual terminar."); return end
+        if o.fixedTeleportBusy then Xz("Aguarde o teleporte terminar."); return end
+        if o.claimFarm and not o.claimFarm("garage") then return end
         G.busy = true
         G.actionToken = G.cancelToken
         local token = G.actionToken
         local belt = T.autoCintoEnabled
         T.autoCintoEnabled = false
         task.spawn(function()
-            local ok, success, msg = pcall(action)
+            local deadline = os.clock()+2
+            while o.travel.owner and active() and os.clock()<deadline do task.wait(0.05) end
+            local ok, success, msg = pcall(function()
+                if not active() then return false,"Acao cancelada." end
+                if o.travel.owner then return false,"Aguarde o deslocamento anterior terminar." end
+                return action()
+            end)
             G.busy = false
             if not o.destroyed then
                 if token == G.cancelToken then T.autoCintoEnabled = belt end
@@ -5626,11 +5612,1524 @@ do
     o.readNeed = readStat
 end
 
--- AUTO ROUBO
+-- AUTO ROUBO R4 INTEGRADO A ABA FARM.
 do
     o.createRobberyController = function(host)
--- (mantido igual — só adiciona LPH_NO_VIRTUALIZE nos loops quentes, mas como o robber controller é executado em task.wait 1s, não precisa)
--- [... mesmo bloco do robbery controller anterior, sem alteração ...]
+local BUILD = "FARM-R4"
+
+local CONFIG = {
+    INICIAR_AUTO_ROUBO = false,
+    INICIAR_POR_BAIXO = false,
+    AUTO_TROCAR_SERVIDOR = false,
+    MIN_POLICIAIS = 4, -- Minimo absoluto para permanecer no servidor.
+    MIN_POLICIAIS_CASSINO = 5,
+    BANCO_CENTRAL = Vector3.new(-634.49, 108.45, -2675.41),
+    RAIO_BANCO_CENTRAL = 180,
+    POSICAO_CASSINO = nil, -- Opcional; a busca existente do cassino foi mantida.
+    INICIAR_GHOST = false,
+    MODO_ECONOMICO = false,
+    SOMENTE_BOLSAS = false,
+    FPS_ECONOMICO = 30,
+    CASSINO_PROFUNDO = false,
+    PROFUNDIDADE_CASSINO = 60, -- Limite; a altura real respeita o alcance da bolsa.
+    TEMPO_SEM_PROGRESSO = 40,
+    FALHAS_ANTES_DE_TROCAR_LOCAL = 3,
+    REAVALIAR_LOCAL_APOS = 90,
+    CACHE_LISTA_SERVIDORES = 45,
+    INTERVALO_CONTINUAR_BUSCA = 2,
+    EQUIPES_POLICIA = {"policia", "police", "policial", "pm", "pc", "pf", "prf", "bope", "rota", "choque", "pmesp", "pmerj", "pmmg", "gcm", "gm", "guardacivil", "guardamunicipal", "guardametropolitana"},
+    NOMES = { -- Fragmentos especificos dos nomes das bolsas/modelos.
+        "moneybag", "cashbag", "bagmoney", "bolsadedinheiro", "bolsadinheiro",
+        "sacodedinheiro", "sacodinheiro", "sacodegrana", "malote",
+        "moneydrop", "cashdrop", "dinheirodropado", "pilhadedinheiro", "cashpile",
+    },
+    LOCAIS = {"cassino", "casino", "joalheria", "jewelry", "jewellery", "banco", "bank", "roubo", "robbery"},
+    ROTA = { -- Opcional: Vector3.new(X, Y, Z) de cada local. Sem coordenadas inventadas.
+    },
+    PROFUNDIDADE = 4,
+    DISTANCIA_NORMAL = 2.5,
+    TENTATIVAS_POR_BOLSA = 2,
+    TEMPO_CONFIRMACAO = 2,
+    PAUSA_ENTRE_TENTATIVAS = 0.35,
+    REVISITAR_APOS_FALHA = 12,
+    REVISITAR_APOS_SINAL = 4,
+    ESPERA_CARREGAMENTO_ROTA = 2,
+    ESPERA_INICIAL_SERVIDOR = 12,
+    SEGUNDOS_SEM_BOLSAS = 8,
+    INTERVALO_BUSCA_SERVIDOR = 15,
+    TIMEOUT_TROCA_SERVIDOR = 20,
+    MAX_PAGINAS_SERVIDORES = 5,
+    EVITAR_SERVIDOR_POR = 1800,
+}
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local World = game:GetService("Workspace")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local player = Players.LocalPlayer
+while not player do task.wait(0.1); player = Players.LocalPlayer end
+local env = (type(getgenv) == "function" and getgenv()) or _G
+if type(env.__VT_AUTO_ROUBO_CLEANUP) == "function" then
+    pcall(env.__VT_AUTO_ROUBO_CLEANUP)
+end
+
+local executor = {
+    prompt = fireproximityprompt or env.fireproximityprompt,
+    touch = firetouchinterest or env.firetouchinterest,
+    click = fireclickdetector or env.fireclickdetector,
+}
+local app = {
+    enabled = false, below = CONFIG.INICIAR_POR_BAIXO, returnOnStop = false, destroyed = false,
+    autoHop = CONFIG.AUTO_TROCAR_SERVIDOR, autoStartPending = CONFIG.INICIAR_AUTO_ROUBO,
+    startedAt = 0, emptySince = nil, nextHopAt = 0, routeChecks = 0,
+    hopJob = nil, visitedServers = {}, paused = false,
+    locationBlocked = {}, collectionProgress = {},
+    policeCount = 0, policeEverReady = false, policeConnections = {},
+    location = "cassino", locationDone = {}, locationVisited = {}, locationCounts = {},
+    totalCount = 0, ghostEnabled = CONFIG.INICIAR_GHOST,
+    economyEnabled = CONFIG.MODO_ECONOMICO, onlyBags = CONFIG.SOMENTE_BOLSAS,
+    fpsLimit = CONFIG.FPS_ECONOMICO, deepCasino = CONFIG.CASSINO_PROFUNDO,
+    leavingPlayers = setmetatable({}, {__mode = "k"}),
+    generation = 0, indexed = false, routeIndex = 0,
+    registry = {}, cooldowns = setmetatable({}, {__mode = "k"}),
+    connections = {}, collisions = {}, status = "Desligado", count = 0,
+}
+local gui, panel, statusLabel, countLabel, autoButton, belowButton, returnButton, hopButton, ghostButton, reopen
+local setEnabled, destroy, pauseForPolice, startGhost, stopGhost, refreshUI
+local ui = {}
+
+local function connect(signal, fn)
+    local c = signal:Connect(fn)
+    app.connections[#app.connections + 1] = c
+    return c
+end
+
+local function status(text)
+    if app.status == text then return end
+    app.status = text
+    if statusLabel then statusLabel.Text = text end
+    if refreshUI then refreshUI() end
+end
+
+-- Normalizacao para locais e equipes.
+local function normalize(text)
+    local s = tostring(text or ""):lower()
+    for accented, plain in pairs({["á"]="a",["à"]="a",["ã"]="a",["â"]="a",["é"]="e",["ê"]="e",["í"]="i",["ó"]="o",["ô"]="o",["õ"]="o",["ú"]="u",["ç"]="c",["Á"]="a",["À"]="a",["Ã"]="a",["Â"]="a",["É"]="e",["Ê"]="e",["Í"]="i",["Ó"]="o",["Ô"]="o",["Õ"]="o",["Ú"]="u",["Ç"]="c"}) do
+        s = s:gsub(accented, plain)
+    end
+    return (s:gsub("[^%w]", ""))
+end
+
+local function containsAny(text, list)
+    for _, term in ipairs(list) do
+        local normalized = normalize(term)
+        if normalized ~= "" and text:find(normalized, 1, true) then return true end
+    end
+    return false
+end
+
+local function requiredPolice(location)
+    if type(location) == "table" then location = location.location end
+    return (location or app.location) == "banco" and CONFIG.MIN_POLICIAIS or CONFIG.MIN_POLICIAIS_CASSINO
+end
+
+local function locationName(location)
+    return (location or app.location) == "banco" and "Banco Central" or "Cassino"
+end
+
+local function renderCounts()
+    if countLabel then countLabel.Text = locationName() .. " | Bolsas: " .. app.count .. " | Policiais: " .. app.policeCount .. "/" .. requiredPolice() end
+    if refreshUI then refreshUI() end
+end
+
+local function isLocationBlocked(location)
+    local deadline = app.locationBlocked[location]
+    if deadline and os.clock() >= deadline then app.locationBlocked[location] = nil; return false end
+    return deadline ~= nil
+end
+
+local function chooseLocation(count)
+    if not isLocationBlocked(app.location) and not app.locationDone[app.location] and count >= requiredPolice() then return app.location end
+    for _, location in ipairs({"cassino", "banco"}) do
+        if not isLocationBlocked(location) and not app.locationDone[location] and count >= requiredPolice(location) then
+            if pauseForPolice then pauseForPolice() end
+            app.location = location
+            app.emptySince, app.routeChecks = nil, 0
+            renderCounts()
+            return location
+        end
+    end
+    return nil
+end
+
+local function isPoliceTeam(team)
+    if not team then return false end
+    local name = normalize(team.Name)
+    local prefix = tostring(team.Name or ""):lower():match("%a+") or ""
+    for _, alias in ipairs(CONFIG.EQUIPES_POLICIA) do
+        local key = normalize(alias)
+        -- Aceita GCM/PM com prefixos e sufixos decorativos, sem achar siglas no meio de outras palavras.
+        if key ~= "" and (name == key or (#key >= 5 and name:find(key, 1, true))
+            or (#key <= 4 and prefix == key)) then return true end
+    end
+    return false
+end
+
+local function refreshPoliceCount()
+    local count = 0
+    for _, member in ipairs(Players:GetPlayers()) do
+        if not app.leavingPlayers[member] and member.Neutral ~= true and isPoliceTeam(member.Team) then count = count + 1 end
+    end
+    app.policeCount = count
+    if count >= CONFIG.MIN_POLICIAIS and app.enabled then app.policeEverReady = true end
+    if count < requiredPolice() and app.enabled and pauseForPolice then pauseForPolice() end
+    renderCounts()
+    return count
+end
+
+local function hasRequiredPolice(location)
+    return refreshPoliceCount() >= requiredPolice(location)
+end
+
+local function watchPolicePlayer(member)
+    if app.policeConnections[member] then return end
+    app.leavingPlayers[member] = nil
+    app.policeConnections[member] = {
+        member:GetPropertyChangedSignal("Team"):Connect(refreshPoliceCount),
+        member:GetPropertyChangedSignal("Neutral"):Connect(refreshPoliceCount),
+    }
+end
+
+local function removePolicePlayer(member)
+    -- PlayerRemoving pode disparar enquanto GetPlayers ainda contem quem esta saindo.
+    app.leavingPlayers[member] = true
+    for _, c in ipairs(app.policeConnections[member] or {}) do c:Disconnect() end
+    app.policeConnections[member] = nil
+    refreshPoliceCount()
+end
+
+local function policeHopReady()
+    if refreshPoliceCount() >= CONFIG.MIN_POLICIAIS then return false, 0 end
+    if app.policeEverReady then return true, 0 end
+    local remaining = math.max(0, math.ceil(app.startedAt + CONFIG.ESPERA_INICIAL_SERVIDOR - os.clock()))
+    return remaining == 0, remaining
+end
+
+local function collectorKind(obj)
+    if obj:IsA("ProximityPrompt") then return "prompt" end
+    if obj:IsA("TouchTransmitter") then return "touch" end
+    if obj:IsA("ClickDetector") then return "click" end
+    return nil
+end
+
+local function inWorld(obj)
+    return obj and obj.Parent ~= nil and obj:IsDescendantOf(World)
+end
+
+local function rootAndHumanoid()
+    local char = player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if hum and root and hum.Health > 0 then return root, hum, char end
+    return nil
+end
+
+local function unavailable(obj)
+    for _, key in ipairs({"Collected", "IsCollected", "Coletado"}) do
+        if obj:GetAttribute(key) == true then return true end
+    end
+    for _, key in ipairs({"Available", "Disponivel", "Disponível"}) do
+        if obj:GetAttribute(key) == false then return true end
+    end
+    return false
+end
+
+local function classify(handle)
+    if not inWorld(handle) then return nil end
+    local kind = collectorKind(handle)
+    if not kind or (kind == "prompt" and not handle.Enabled) then return nil end
+    local attachment, part, nearestModel, namedObject, location = nil, nil, nil, nil, false
+    local names, node = {}, handle.Parent
+    -- Nunca considera bolsas equipadas, ferramentas ou objetos dentro de personagens.
+    while node and node ~= World do
+        if node:IsA("Tool") or (node:IsA("Model") and node:FindFirstChildOfClass("Humanoid")) then
+            return nil
+        end
+        local name = normalize(node.Name)
+        names[#names + 1] = name
+        if containsAny(name, CONFIG.LOCAIS) then location = true end
+        if not attachment and node:IsA("Attachment") then attachment = node end
+        if not part and node:IsA("BasePart") then part = node end
+        if not nearestModel and node:IsA("Model") then nearestModel = node end
+        if not namedObject and (node:IsA("Model") or node:IsA("BasePart")) and containsAny(name, CONFIG.NOMES) then
+            namedObject = node
+        end
+        node = node.Parent
+    end
+    local promptText = kind == "prompt" and normalize(handle.ActionText .. " " .. handle.ObjectText) or ""
+    local specific = namedObject ~= nil or containsAny(promptText, CONFIG.NOMES)
+    local moneyText = promptText:find("dinheiro", 1, true) or promptText:find("money", 1, true) or promptText:find("cash", 1, true)
+    local collectText = containsAny(promptText, {"pegar", "coletar", "recolher", "collect", "take", "grab", "pickup"})
+    local genericObject = false
+    for _, name in ipairs(names) do
+        if name == "dinheiro" or name == "money" or name == "cash" or name == "bolsa" or name == "bag" then
+            genericObject = true
+        end
+    end
+    if not (specific or (moneyText and collectText) or (location and genericObject)) then return nil end
+    if not part and nearestModel then part = nearestModel.PrimaryPart or nearestModel:FindFirstChildWhichIsA("BasePart", true) end
+    if not part or not inWorld(part) then return nil end
+    local object = namedObject or part
+    if unavailable(object) or unavailable(part) then return nil end
+    local position = attachment and attachment.WorldPosition or part.Position
+    -- A excecao de 4 policiais se aplica somente a area informada do Banco Central.
+    local locationKey = (position - CONFIG.BANCO_CENTRAL).Magnitude <= CONFIG.RAIO_BANCO_CENTRAL and "banco" or "cassino"
+    return {
+        handle = handle, kind = kind, part = part, object = object,
+        location = locationKey,
+        anchor = attachment or part,
+        label = namedObject and namedObject.Name or (kind == "prompt" and handle.ObjectText ~= "" and handle.ObjectText) or part.Name,
+    }
+end
+
+local function positionOf(target)
+    if not inWorld(target.anchor) then return nil end
+    if target.anchor:IsA("Attachment") then return target.anchor.WorldPosition end
+    return target.anchor.Position
+end
+
+local function resolved(target)
+    return not inWorld(target.handle) or not inWorld(target.object) or unavailable(target.object)
+        or (target.kind == "prompt" and not target.handle.Enabled)
+end
+
+local function chooseTarget()
+    local root = rootAndHumanoid()
+    local best, distance, count, objects = nil, math.huge, 0, {}
+    local counts = {cassino = 0, banco = 0}
+    local priority = {prompt = 3, touch = 2, click = 1}
+    for handle in pairs(app.registry) do
+        local target = classify(handle)
+        if target then
+            local current = objects[target.object]
+            if not current or priority[target.kind] > priority[current.kind] then objects[target.object] = target end
+        end
+    end
+    for _, target in pairs(objects) do
+        counts[target.location] = counts[target.location] + 1
+        if target.location == app.location then count = count + 1 end
+        local pos = positionOf(target)
+        if target.location == app.location and root and pos and (app.cooldowns[target.handle] or 0) <= os.clock() then
+            local d = (pos - root.Position).Magnitude
+            if d < distance then best, distance = target, d end
+        end
+    end
+    app.count, app.totalCount, app.locationCounts = count, counts.cassino + counts.banco, counts
+    if app.performance then app.performance.targets(objects) end
+    renderCounts()
+    return best
+end
+
+local function running(id)
+    return not app.destroyed and app.enabled and app.generation == id
+end
+
+local function waitActive(seconds, id, needsPolice)
+    local finish = os.clock() + seconds
+    repeat
+        if not running(id) or not rootAndHumanoid() then return false end
+        if needsPolice and not hasRequiredPolice() then return false end
+        if os.clock() >= finish then return true end
+        task.wait(0.05)
+    until false
+end
+
+local function cancelHeldPrompt()
+    if app.heldPrompt then
+        local prompt = app.heldPrompt
+        app.heldPrompt, app.heldPromptId = nil, nil
+        pcall(function() prompt:InputHoldEnd() end)
+    end
+end
+
+pauseForPolice = function()
+    cancelHeldPrompt()
+    -- Interrompe a interacao, mantendo a altura para nao cair sob o mapa.
+    local hold = app.hold
+    if hold then
+        hold.position = (hold.target and positionOf(hold.target)) or hold.position
+        hold.target = nil
+    end
+end
+
+local function releaseHold()
+    app.hold = nil
+    cancelHeldPrompt()
+    for part, collision in pairs(app.collisions) do
+        pcall(function() part.CanCollide = collision end)
+    end
+    app.collisions = {}
+end
+
+local function applyNoCollision(char)
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            if app.collisions[part] == nil then app.collisions[part] = part.CanCollide end
+            part.CanCollide = false
+        end
+    end
+end
+
+-- GHOST DO ARQUIVO FORNECIDO: corpo real 10 studs abaixo e plataforma de apoio.
+-- A ponte sincroniza corpo, clone, plataforma e noclip no mesmo deslocamento.
+do
+    local LocalPlayer, workspace, o = player, World, app
+    local function handleReady(connection)
+        app.connections[#app.connections + 1] = connection
+        return connection
+    end
+do
+    local HEIGHT = 10
+    local PLATFORM_OFFSET = 3.5
+    local WALK_ANIMATION_R15 = "rbxassetid://507777826"
+    local WALK_ANIMATION_R6 = "rbxassetid://180426354"
+    local isGhost = false
+    local ghostCharacter = nil
+    local fakeModel = nil
+    local platform = nil
+    local walkTrack = nil
+    local camLockConnection = nil
+    local ghostNoclipEnabled = false
+    local changedParts = {}
+    local targetY = 0
+    local ghostNoclipLoop = nil
+    local RENDER_BINDING = "VT_AutoRouboGhostCameraFix"
+
+    local overlapParams = OverlapParams.new()
+    overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+
+    local function clearGhostObstacles(cf)
+        local char = ghostCharacter
+        if not char then return end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+        overlapParams.FilterDescendantsInstances = { char, fakeModel, platform }
+        local parts = workspace:GetPartBoundsInBox(cf or root.CFrame, Vector3.new(4, 6, 4), overlapParams)
+        for _, part in ipairs(parts) do
+            if part:IsA("BasePart") and part.Parent and part ~= platform and part.CanCollide then
+                if changedParts[part] == nil then changedParts[part] = true end
+                part.CanCollide = false
+            end
+        end
+    end
+
+    local function startGhostNoclip()
+        if ghostNoclipEnabled then return end
+        ghostNoclipEnabled = true
+        table.clear(changedParts)
+        ghostNoclipLoop = RunService.Stepped:Connect(function()
+            if ghostNoclipEnabled then clearGhostObstacles() end
+        end)
+    end
+
+    local function stopGhostNoclip()
+        ghostNoclipEnabled = false
+        if ghostNoclipLoop then ghostNoclipLoop:Disconnect(); ghostNoclipLoop = nil end
+        for part in pairs(changedParts) do
+            if part and part.Parent and part ~= platform then part.CanCollide = true end
+        end
+        table.clear(changedParts)
+    end
+
+    local function setupFakeCharacter(model)
+        local humanoid = model:FindFirstChildOfClass("Humanoid")
+        if not humanoid then return false end
+        humanoid.AutoRotate = false
+        humanoid.PlatformStand = true
+        humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+        for _, state in ipairs({ Enum.HumanoidStateType.FallingDown, Enum.HumanoidStateType.Ragdoll,
+            Enum.HumanoidStateType.Jumping, Enum.HumanoidStateType.Climbing,
+            Enum.HumanoidStateType.Swimming, Enum.HumanoidStateType.Freefall,
+            Enum.HumanoidStateType.Flying }) do
+            pcall(function() humanoid:SetStateEnabled(state, false) end)
+        end
+        for _, obj in ipairs(model:GetDescendants()) do
+            if obj:IsA("BasePart") then
+                obj.Anchored = true
+                obj.CanCollide = false
+                obj.CanTouch = false
+                obj.CanQuery = false
+                obj.Massless = true
+            elseif obj:IsA("Script") or obj:IsA("LocalScript") then
+                obj:Destroy()
+            end
+        end
+        local animator = humanoid:FindFirstChildOfClass("Animator") or Instance.new("Animator", humanoid)
+        local animation = Instance.new("Animation")
+        animation.Name = "VeteranoGhostWalk"
+        animation.AnimationId = (humanoid.RigType == Enum.HumanoidRigType.R15) and WALK_ANIMATION_R15 or WALK_ANIMATION_R6
+        local success, track = pcall(function() return animator:LoadAnimation(animation) end)
+        if success and track then
+            walkTrack = track
+            walkTrack.Looped = true
+            walkTrack.Priority = Enum.AnimationPriority.Movement
+        end
+        return true
+    end
+
+    local function updateFakeAnimation(realHumanoid)
+        if not walkTrack then return end
+        local moving = realHumanoid.MoveDirection.Magnitude > 0.05
+        if moving then
+            if not walkTrack.IsPlaying then walkTrack:Play(0.12) end
+            walkTrack:AdjustSpeed(math.clamp(realHumanoid.WalkSpeed / 16, 0.5, 2))
+        else
+            if walkTrack.IsPlaying then walkTrack:Stop(0.12) end
+        end
+    end
+
+    local function updateCameraAndGhost()
+        if not isGhost or not fakeModel or LocalPlayer.Character ~= ghostCharacter then return end
+        local realChar = ghostCharacter
+        local realRoot = realChar:FindFirstChild("HumanoidRootPart")
+        if not realRoot or not platform then return end
+        local fakeHumanoid = fakeModel:FindFirstChildOfClass("Humanoid")
+        if fakeHumanoid and workspace.CurrentCamera.CameraSubject ~= fakeHumanoid then
+            workspace.CurrentCamera.CameraSubject = fakeHumanoid
+        end
+        local currentPos = realRoot.Position
+        realRoot.AssemblyLinearVelocity = Vector3.new(
+            realRoot.AssemblyLinearVelocity.X, 0, realRoot.AssemblyLinearVelocity.Z)
+        platform.CFrame = CFrame.new(currentPos.X, targetY - PLATFORM_OFFSET, currentPos.Z)
+        fakeModel:PivotTo(CFrame.new(currentPos.X, targetY + HEIGHT, currentPos.Z) * realRoot.CFrame.Rotation)
+        local realHumanoid = realChar:FindFirstChildOfClass("Humanoid")
+        if realHumanoid then updateFakeAnimation(realHumanoid) end
+    end
+
+    local function stopGhost()
+        if not isGhost then return end
+        isGhost = false
+        RunService:UnbindFromRenderStep(RENDER_BINDING)
+        if camLockConnection then camLockConnection:Disconnect(); camLockConnection = nil end
+        stopGhostNoclip()
+        if walkTrack then pcall(function() walkTrack:Stop(0.1) end); walkTrack = nil end
+        local realChar = ghostCharacter
+        local realRoot = realChar and realChar:FindFirstChild("HumanoidRootPart")
+        local realHumanoid = realChar and realChar:FindFirstChildOfClass("Humanoid")
+        if realHumanoid then realHumanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, true) end
+        if realRoot and fakeModel then
+            local fakeRoot = fakeModel:FindFirstChild("HumanoidRootPart")
+            if fakeRoot then realRoot.CFrame = fakeRoot.CFrame end
+        end
+        if realChar then
+            for _, obj in ipairs(realChar:GetDescendants()) do
+                if obj:IsA("BasePart") then
+                    obj.Transparency = 0
+                    obj.CanTouch = true
+                    obj.CanQuery = true
+                    obj.CanCollide = true
+                end
+            end
+            if realHumanoid and LocalPlayer.Character == realChar then workspace.CurrentCamera.CameraSubject = realHumanoid end
+        end
+        if fakeModel then fakeModel:Destroy(); fakeModel = nil end
+        if platform then platform:Destroy(); platform = nil end
+        HEIGHT, o.ghostHeight = 10, 10
+        ghostCharacter = nil
+    end
+
+    local function startGhost()
+        local realChar = LocalPlayer.Character
+        if not realChar then return end
+        local realRoot = realChar:FindFirstChild("HumanoidRootPart")
+        local realHumanoid = realChar:FindFirstChildOfClass("Humanoid")
+        if not realRoot or not realHumanoid or isGhost then return end
+        ghostCharacter = realChar
+        isGhost = true
+        realHumanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
+        local startCFrame = realRoot.CFrame
+        targetY = startCFrame.Y - HEIGHT
+        platform = Instance.new("Part")
+        platform.Name = "VeteranoGhostPlatform"
+        platform.Size = Vector3.new(10, 1, 10)
+        platform.Anchored = true
+        platform.CanCollide = true
+        platform.CanTouch = false
+        platform.CanQuery = false
+        platform.Transparency = 1
+        platform.CFrame = CFrame.new(startCFrame.X, targetY - PLATFORM_OFFSET, startCFrame.Z)
+        platform.Parent = workspace
+        realChar.Archivable = true
+        for _, desc in ipairs(realChar:GetDescendants()) do desc.Archivable = true end
+        local success, clonedChar = pcall(function() return realChar:Clone() end)
+        if not success or not clonedChar then stopGhost(); return end
+        fakeModel = clonedChar
+        fakeModel.Name = "VeteranoGhostVisual"
+        for _, obj in ipairs(fakeModel:GetDescendants()) do
+            if obj:IsA("Script") or obj:IsA("LocalScript") then obj:Destroy()
+            elseif obj:IsA("BasePart") then obj.LocalTransparencyModifier = 0 end
+        end
+        fakeModel.Parent = workspace
+        local fakeRoot = fakeModel:FindFirstChild("HumanoidRootPart")
+        local fakeHumanoid = fakeModel:FindFirstChildOfClass("Humanoid")
+        if not fakeRoot or not fakeHumanoid then stopGhost(); return end
+        fakeModel.PrimaryPart = fakeRoot
+        if not setupFakeCharacter(fakeModel) then stopGhost(); return end
+        fakeModel:PivotTo(startCFrame)
+        for _, obj in ipairs(realChar:GetDescendants()) do
+            if obj:IsA("BasePart") then obj.Transparency = 1 end
+        end
+        startGhostNoclip()
+        clearGhostObstacles(CFrame.new(startCFrame.X, targetY, startCFrame.Z) * startCFrame.Rotation)
+        realRoot.AssemblyLinearVelocity = Vector3.zero
+        realRoot.AssemblyAngularVelocity = Vector3.zero
+        realRoot.CFrame = CFrame.new(startCFrame.X, targetY, startCFrame.Z) * startCFrame.Rotation
+        workspace.CurrentCamera.CameraSubject = fakeHumanoid
+        camLockConnection = workspace.CurrentCamera:GetPropertyChangedSignal("CameraSubject"):Connect(function()
+            if isGhost and fakeHumanoid and workspace.CurrentCamera.CameraSubject ~= fakeHumanoid then
+                workspace.CurrentCamera.CameraSubject = fakeHumanoid
+            end
+        end)
+        RunService:BindToRenderStep(RENDER_BINDING, Enum.RenderPriority.Last.Value, updateCameraAndGhost)
+    end
+
+    -- O controlador da coleta usa esta ponte; nao move o corpo por outro loop.
+    o.ghostHeight = HEIGHT
+    o.setGhostHeight = function(height)
+        HEIGHT = math.clamp(tonumber(height) or 10, 0.1, math.max(40, CONFIG.PROFUNDIDADE_CASSINO + CONFIG.DISTANCIA_NORMAL))
+        o.ghostHeight = HEIGHT
+    end
+    o.moveGhostRoot = function(cf, prepareDestination)
+        if not isGhost or ghostCharacter ~= LocalPlayer.Character or not platform or not platform.Parent or not fakeModel or not fakeModel.Parent then return false end
+        local root = ghostCharacter:FindFirstChild("HumanoidRootPart")
+        if not root or not root.Parent then return false end
+        targetY = cf.Y
+        platform.CFrame = CFrame.new(cf.X, targetY - PLATFORM_OFFSET, cf.Z)
+        fakeModel:PivotTo(CFrame.new(cf.X, targetY + HEIGHT, cf.Z) * cf.Rotation)
+        if prepareDestination then clearGhostObstacles(cf) end
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+        root.CFrame = cf
+        return true
+    end
+    o.getGhostSurfaceCFrame = function()
+        if not isGhost or ghostCharacter ~= LocalPlayer.Character then return nil end
+        local root = ghostCharacter:FindFirstChild("HumanoidRootPart")
+        if root then return CFrame.new(root.Position.X, targetY + HEIGHT, root.Position.Z) * root.CFrame.Rotation end
+    end
+
+    o.startGhost = startGhost
+    o.stopGhost = stopGhost
+    o.isGhostActive = function() return isGhost end
+
+    handleReady(LocalPlayer.CharacterAdded:Connect(function()
+        if isGhost then stopGhost() end
+    end))
+end
+end
+
+-- Controle de ciclo: preserva os valores anteriores ao ligar/desligar o bloco.
+local function restoreGhostState()
+    local saved = app.savedGhostState
+    app.savedGhostState = nil
+    if not saved then return end
+    for obj, properties in pairs(saved.objects) do
+        pcall(function()
+            obj.Archivable = properties.archivable
+            if properties.transparency ~= nil then
+                obj.Transparency = properties.transparency
+                obj.CanCollide, obj.CanTouch, obj.CanQuery = properties.collide, properties.touch, properties.query
+            end
+        end)
+    end
+    if saved.humanoid and saved.jumping ~= nil then
+        pcall(function() saved.humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, saved.jumping) end)
+    end
+end
+
+stopGhost = function()
+    local ok, err = pcall(app.stopGhost)
+    restoreGhostState()
+    if not ok then warn("[VT GHOST] Erro ao encerrar: " .. tostring(err)) end
+    if refreshUI then refreshUI() end
+end
+
+startGhost = function()
+    if not app.ghostEnabled then return false end
+    if app.isGhostActive() then return true end
+    if World:FindFirstChild("VeteranoGhostVisual") then
+        app.ghostError = "Outro Ghost ativo; desligue o Ghost do menu principal"
+        return false
+    end
+    local root, humanoid, character = rootAndHumanoid()
+    if not root then app.ghostError = "Aguarde o personagem carregar"; return false end
+    local saved = {objects = {}, humanoid = humanoid}
+    saved.objects[character] = {archivable = character.Archivable}
+    for _, obj in ipairs(character:GetDescendants()) do
+        local properties = {archivable = obj.Archivable}
+        if obj:IsA("BasePart") then
+            properties.transparency, properties.collide, properties.touch, properties.query = obj.Transparency, obj.CanCollide, obj.CanTouch, obj.CanQuery
+        end
+        saved.objects[obj] = properties
+    end
+    local captured, jumping = pcall(function() return humanoid:GetStateEnabled(Enum.HumanoidStateType.Jumping) end)
+    if captured then saved.jumping = jumping end
+    app.savedGhostState = saved
+    local ok, err = pcall(app.startGhost)
+    if not ok or not app.isGhostActive() then
+        stopGhost()
+        app.ghostError = tostring(err or "personagem indisponivel")
+        warn("[VT GHOST] Falha ao iniciar o bloco fornecido: " .. app.ghostError)
+        return false
+    end
+    app.ghostError = nil
+    if refreshUI then refreshUI() end
+    return true
+end
+
+local function beginHold(target, explicitPosition, id)
+    if not hasRequiredPolice(target) then return false, "Policiais abaixo do minimo deste local" end
+    releaseHold()
+    local root, hum, char = rootAndHumanoid()
+    local pos = explicitPosition or (target and positionOf(target))
+    if not root or not pos then return false, "Personagem/alvo indisponivel" end
+    local offset = Vector3.new(0, 0, 0)
+    local below = app.below or app.ghostEnabled
+    local ghostHeight = 10
+    if app.ghostEnabled then
+        local surfaceOffset = target and CONFIG.DISTANCIA_NORMAL or 0
+        local range
+        if target and (target.kind == "prompt" or target.kind == "click") then
+            range = target.handle.MaxActivationDistance
+            if type(range) == "number" and range <= 0 then return false, "Bolsa sem alcance de interacao" end
+        end
+        if target and target.location == "cassino" and app.deepCasino then
+            local depth = 10 - surfaceOffset
+            if type(range) == "number" then
+                depth = math.min(CONFIG.PROFUNDIDADE_CASSINO, range * 0.85)
+            end
+            ghostHeight = surfaceOffset + depth
+        end
+        offset = Vector3.new(0, surfaceOffset - ghostHeight, 0)
+    elseif target then
+        local distance = below and CONFIG.PROFUNDIDADE or CONFIG.DISTANCIA_NORMAL
+        if target.kind == "prompt" then
+            local range = target.handle.MaxActivationDistance
+            if range <= 0 then return false, "Bolsa sem alcance de interacao" end
+            distance = math.min(distance, range * 0.7)
+        end
+        offset = Vector3.new(0, below and -distance or distance, 0)
+    end
+    if (pos + offset).Y <= World.FallenPartsDestroyHeight + 10 then
+        return false, "Destino abaixo do limite de queda do mapa"
+    end
+    if app.ghostEnabled then app.setGhostHeight(ghostHeight) end
+    if app.ghostEnabled and not startGhost() then
+        if app.enabled then setEnabled(false) end
+        status(app.ghostError or "Ghost nao iniciou; auto roubo pausado")
+        return false, "Ghost nao iniciou"
+    end
+    app.hold = {root = root, char = char, hum = hum, target = target, position = pos, offset = offset,
+        depth = -offset.Y, usesGhost = app.ghostEnabled, below = (target ~= nil and below) or app.ghostEnabled, id = id}
+    if app.hold.below and not app.hold.usesGhost then applyNoCollision(char) end
+    local cf = CFrame.new(pos + offset) * root.CFrame.Rotation
+    if app.hold.usesGhost then
+        if not app.moveGhostRoot(cf, true) then
+            setEnabled(false)
+            status("Ghost perdeu o personagem; coleta pausada")
+            return false, "Ghost indisponivel"
+        end
+    else
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+        root.CFrame = cf
+    end
+    return true
+end
+
+local function maintainHold()
+    local hold = app.hold
+    local alive = hold and (running(hold.id) or (app.paused and hold.paused and not app.destroyed))
+    if not alive or player.Character ~= hold.char or not hold.root.Parent or hold.hum.Health <= 0 then return end
+    local pos = hold.target and positionOf(hold.target) or hold.position
+    if not pos then return end
+    local cf = CFrame.new(pos + hold.offset) * hold.root.CFrame.Rotation
+    if hold.usesGhost then
+        if not app.moveGhostRoot(cf, false) then
+            setEnabled(false, "stop")
+            status("Ghost interrompido; coleta pausada")
+        end
+        return
+    end
+    if hold.below then applyNoCollision(hold.char) end
+    hold.root.AssemblyLinearVelocity = Vector3.zero
+    hold.root.AssemblyAngularVelocity = Vector3.zero
+    hold.root.CFrame = cf
+end
+
+local function interact(target, id)
+    if not running(id) or resolved(target) then return false, "Alvo indisponivel" end
+    if not hasRequiredPolice(target) then return false, "Policiais abaixo do minimo deste local" end
+    if target.kind == "prompt" then
+        local prompt = target.handle
+        if type(executor.prompt) == "function" then
+            local ok = pcall(executor.prompt, prompt, prompt.HoldDuration)
+            return ok, ok and "Interacao enviada" or "Acionamento do prompt falhou"
+        end
+        app.heldPrompt, app.heldPromptId = prompt, id
+        local ok = pcall(function() prompt:InputHoldBegin() end)
+        if not ok then app.heldPrompt, app.heldPromptId = nil, nil; return false, "Prompt nao aceitou a interacao" end
+        local completed = waitActive(prompt.HoldDuration + 0.15, id, true)
+        if app.heldPrompt == prompt and app.heldPromptId == id then
+            app.heldPrompt, app.heldPromptId = nil, nil
+            pcall(function() prompt:InputHoldEnd() end)
+        end
+        return completed, "Interacao por prompt"
+    elseif target.kind == "touch" then
+        local root = rootAndHumanoid()
+        if not root then return false, "Personagem indisponivel" end
+        if type(executor.touch) == "function" then
+            local ok = pcall(executor.touch, root, target.part, 0)
+            local completed = waitActive(0.1, id, true)
+            pcall(executor.touch, root, target.part, 1)
+            return ok and completed, "Interacao por toque"
+        end
+        if app.below or app.ghostEnabled then return false, "Coleta por baixo requer suporte a toque do executor" end
+        root.CFrame = CFrame.new(target.part.Position) * root.CFrame.Rotation
+        if app.hold then app.hold.offset = Vector3.zero end
+        return waitActive(0.25, id, true), "Aguardando contato com a bolsa"
+    end
+    if type(executor.click) ~= "function" then return false, "Executor sem suporte a ClickDetector" end
+    local ok = pcall(executor.click, target.handle)
+    return ok, "Interacao por clique"
+end
+
+local function collectTarget(target, id)
+    local held, message = beginHold(target, nil, id)
+    if not held then return false, message end
+    for _ = 1, CONFIG.TENTATIVAS_POR_BOLSA do
+        if not waitActive(0.15, id, true) then return false, "Interrompido" end
+        if resolved(target) then return true, "Bolsa indisponivel" end
+        status("Coletando: " .. target.label)
+        local sent, reason = interact(target, id)
+        if not running(id) then return false, "Interrompido" end
+        if not hasRequiredPolice(target) then return false, "Policiais abaixo do minimo deste local" end
+        if not sent then return false, reason end
+        local deadline = os.clock() + CONFIG.TEMPO_CONFIRMACAO
+        repeat
+            if resolved(target) then return true, "Alvo retirado/desativado; buscando proximo" end
+            if not waitActive(0.1, id, true) then return false, "Interrompido" end
+        until os.clock() >= deadline
+        if not waitActive(CONFIG.PAUSA_ENTRE_TENTATIVAS, id, true) then return false, "Interrompido" end
+    end
+    return false, "Coleta nao confirmada; nova tentativa depois"
+end
+
+local function recordCollectionOutcome(target, ok)
+    local location, now = target.location, os.clock()
+    local progress = app.collectionProgress[location]
+    if not progress then progress = {at = now, failures = 0}; app.collectionProgress[location] = progress end
+    if ok then
+        progress.at, progress.failures = now, 0
+        app.locationBlocked[location] = nil
+        return false
+    end
+    progress.failures = progress.failures + 1
+    if progress.failures >= CONFIG.FALHAS_ANTES_DE_TROCAR_LOCAL
+        and now - progress.at >= CONFIG.TEMPO_SEM_PROGRESSO then
+        app.locationBlocked[location] = now + CONFIG.REAVALIAR_LOCAL_APOS
+        app.locationDone[location] = true
+        pauseForPolice()
+        status(locationName(location) .. ": sem progresso; verificando outro local/servidor")
+        return true
+    end
+    return false
+end
+
+-- TROCA DE SERVIDOR: lista publica, paginacao e historico local da sessao.
+local historyKey = "VT_AUTO_ROUBO_SERVER_HISTORY_V1"
+
+local function saveServerHistory()
+    pcall(function()
+        TeleportService:SetTeleportSetting(historyKey, HttpService:JSONEncode({place = tostring(game.PlaceId), jobs = app.visitedServers}))
+    end)
+end
+
+local function loadServerHistory()
+    local now = os.time()
+    local ok, raw = pcall(function() return TeleportService:GetTeleportSetting(historyKey) end)
+    if ok and type(raw) == "string" then
+        local decoded, data = pcall(function() return HttpService:JSONDecode(raw) end)
+        if decoded and type(data) == "table" and data.place == tostring(game.PlaceId) and type(data.jobs) == "table" then
+            for job, stamp in pairs(data.jobs) do
+                if type(job) == "string" and type(stamp) == "number" and stamp <= now and now - stamp < CONFIG.EVITAR_SERVIDOR_POR then
+                    app.visitedServers[job] = stamp
+                end
+            end
+        end
+    end
+    if type(game.JobId) == "string" and game.JobId ~= "" then app.visitedServers[game.JobId] = now end
+    saveServerHistory()
+end
+
+local function canHop(id)
+    return running(id) and app.autoHop
+end
+
+local function fetchServerPage(url)
+    local req = request or http_request or env.request or env.http_request
+        or (syn and syn.request) or (http and http.request)
+    local body
+    if type(req) == "function" then
+        local ok, result = pcall(req, {Url = url, Method = "GET", Headers = {Accept = "application/json"}})
+        if not ok or type(result) ~= "table" then return nil, "Falha HTTP na lista de servidores", CONFIG.INTERVALO_BUSCA_SERVIDOR end
+        local code = tonumber(result.StatusCode or result.status_code or 200)
+        if code == 429 then
+            local headers = result.Headers or result.headers or {}
+            local retry = type(headers) == "table" and tonumber(headers["Retry-After"] or headers["retry-after"])
+            return nil, "Lista de servidores limitada; aguardando", math.max(60, retry or 60)
+        end
+        if result.Success == false or not code or code < 200 or code >= 300 then
+            return nil, "Lista de servidores: HTTP " .. tostring(code), CONFIG.INTERVALO_BUSCA_SERVIDOR
+        end
+        body = result.Body or result.body
+    else
+        local ok, result = pcall(function() return game:HttpGet(url) end)
+        if not ok then
+            local limited = tostring(result):find("429", 1, true)
+            return nil, "Nao foi possivel consultar servidores", limited and 60 or CONFIG.INTERVALO_BUSCA_SERVIDOR
+        end
+        body = result
+    end
+    if type(body) ~= "string" then return nil, "Lista de servidores sem resposta valida", CONFIG.INTERVALO_BUSCA_SERVIDOR end
+    local ok, data = pcall(function() return HttpService:JSONDecode(body) end)
+    if not ok or type(data) ~= "table" or type(data.data) ~= "table" then
+        return nil, "Lista de servidores invalida", CONFIG.INTERVALO_BUSCA_SERVIDOR
+    end
+    return data
+end
+
+-- Conserva a pagina e separa falhas de servidores realmente visitados.
+local serverSearch = {
+    cursor = nil, order = "Desc", seen = {}, page = 0,
+    failed = {}, reusable = nil, http = nil, pool = nil,
+}
+
+local function resetServerPages()
+    serverSearch.cursor, serverSearch.seen, serverSearch.page = nil, {}, 0
+    serverSearch.reusable = nil
+    serverSearch.order = "Desc"
+end
+
+local function selectServer(records, allowRecentVisit)
+    local available, bestPopulation, oldest, oldestStamp = {}, -1, nil, math.huge
+    local now = os.time()
+    for job, untilTime in pairs(serverSearch.failed) do
+        if untilTime <= now then serverSearch.failed[job] = nil end
+    end
+    for _, server in ipairs(records) do
+        if type(server) == "table" then
+            local job = server.id
+            local playing, capacity = tonumber(server.playing), tonumber(server.maxPlayers)
+            if type(job) == "string" and job ~= "" and job ~= game.JobId
+                and playing and capacity and playing >= CONFIG.MIN_POLICIAIS
+                and playing < capacity and not serverSearch.failed[job] then
+                local stamp = tonumber(app.visitedServers[job])
+                if not stamp or stamp > now or now - stamp >= CONFIG.EVITAR_SERVIDOR_POR then
+                    if playing > bestPopulation then available, bestPopulation = {}, playing end
+                    if playing == bestPopulation then available[#available + 1] = job end
+                elseif allowRecentVisit and now - stamp >= 60 and stamp < oldestStamp then
+                    oldest, oldestStamp = job, stamp
+                end
+            end
+        end
+    end
+    if #available > 0 then return available[math.random(1, #available)] end
+    return oldest, oldestStamp
+end
+
+local function queryServerPage(url, id, job)
+    local function alive()
+        return canHop(id) and (not job or app.hopJob == job)
+    end
+    -- Nao acumula consultas se o executor recusar cancelar uma requisicao.
+    local previous = serverSearch.http
+    if previous and not previous.done then
+        local cancelled = previous.thread and type(task.cancel) == "function"
+            and pcall(task.cancel, previous.thread)
+        if not cancelled then
+            return nil, "Consulta HTTP anterior ainda pendente", CONFIG.INTERVALO_BUSCA_SERVIDOR
+        end
+    end
+    local ticket = {done = false}
+    serverSearch.http = ticket
+    ticket.thread = task.spawn(function()
+        ticket.ok, ticket.data, ticket.message, ticket.retry = pcall(fetchServerPage, url)
+        ticket.done = true
+    end)
+    local deadline = os.clock() + 12
+    while not ticket.done and alive() and os.clock() < deadline do
+        task.wait(0.05)
+    end
+    if not ticket.done then
+        local cancelled = ticket.thread and type(task.cancel) == "function"
+            and pcall(task.cancel, ticket.thread)
+        if cancelled and serverSearch.http == ticket then serverSearch.http = nil end
+        return nil, alive() and "Consulta expirou; tentando novamente" or "Busca cancelada",
+            CONFIG.INTERVALO_BUSCA_SERVIDOR
+    end
+    if serverSearch.http == ticket then serverSearch.http = nil end
+    if not alive() then return nil, "Busca cancelada" end
+    if not ticket.ok then
+        return nil, "Erro na consulta de servidores", CONFIG.INTERVALO_BUSCA_SERVIDOR
+    end
+    return ticket.data, ticket.message, ticket.retry
+end
+
+local function takeCachedServer()
+    local pool = serverSearch.pool
+    if not pool or os.clock() >= pool.expires then serverSearch.pool = nil; return nil end
+    local selected = selectServer(pool.records)
+    if not selected then serverSearch.pool = nil; return nil end
+    for index = #pool.records, 1, -1 do
+        if pool.records[index].id == selected then table.remove(pool.records, index) end
+    end
+    return selected
+end
+
+local function findOtherServer(id)
+    if not canHop(id) then return nil, "Busca cancelada" end
+    local cached = takeCachedServer()
+    if cached then return cached end
+    local job = app.hopJob
+    if serverSearch.reusable and serverSearch.failed[serverSearch.reusable.id] then
+        serverSearch.reusable = nil
+    end
+    for index = 1, CONFIG.MAX_PAGINAS_SERVIDORES do
+        if not canHop(id) or (job and app.hopJob ~= job) then return nil, "Busca cancelada" end
+        local cursor = serverSearch.cursor
+        local url = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId)
+            .. "/servers/Public?sortOrder=" .. serverSearch.order
+            .. "&limit=100&excludeFullGames=true"
+        if cursor then url = url .. "&cursor=" .. HttpService:UrlEncode(cursor) end
+        status("Buscando servidores; pagina " .. (serverSearch.page + 1))
+        local data, message, retry = queryServerPage(url, id, job)
+        if not canHop(id) or (job and app.hopJob ~= job) then return nil, "Busca cancelada" end
+        if not data then
+            if cursor and type(message) == "string" and message:find("HTTP 400", 1, true) then
+                resetServerPages()
+            end
+            return nil, message, retry
+        end
+        serverSearch.page = serverSearch.page + 1
+        serverSearch.pool = {records = {}, expires = os.clock() + CONFIG.CACHE_LISTA_SERVIDORES}
+        for _, record in ipairs(data.data) do
+            if type(record) == "table" then serverSearch.pool.records[#serverSearch.pool.records + 1] = record end
+        end
+        local selected = takeCachedServer()
+        if not selected then
+            local candidate, stamp = selectServer(data.data, true)
+            local old = serverSearch.reusable
+            if candidate and (not old or stamp < old.stamp) then
+                serverSearch.reusable = {id = candidate, stamp = stamp}
+            end
+        end
+        local nextCursor = data.nextPageCursor
+        local complete = type(nextCursor) ~= "string" or nextCursor == ""
+            or nextCursor == "null" or nextCursor == cursor or serverSearch.seen[nextCursor]
+        local reusable = complete and serverSearch.reusable
+        if complete then
+            resetServerPages()
+        else
+            serverSearch.seen[nextCursor] = true
+            serverSearch.cursor = nextCursor
+        end
+        if selected then return selected end
+        if complete then
+            if reusable and not serverSearch.failed[reusable.id] and reusable.id ~= game.JobId then
+                return reusable.id
+            end
+            return nil, "Nenhum destino com vaga; lista sera atualizada",
+                CONFIG.INTERVALO_BUSCA_SERVIDOR
+        end
+        if index < CONFIG.MAX_PAGINAS_SERVIDORES and not waitActive(0.75, id) then
+            return nil, "Busca cancelada"
+        end
+    end
+    return nil, "Continuando a busca nas proximas paginas", CONFIG.INTERVALO_CONTINUAR_BUSCA
+end
+
+
+local function onTeleportFailed(who, result, message, placeId, options)
+    local job = app.hopJob
+    if who ~= player or not job or not job.destination or tonumber(placeId) ~= game.PlaceId then return end
+    if options then
+        local ok, destination = pcall(function() return options.ServerInstanceId end)
+        if ok and type(destination) == "string" and destination ~= "" and destination ~= job.destination then return end
+    end
+    job.error = tostring(message or result or "Falha ao entrar no servidor")
+end
+
+local function requestServerHop(id, reason)
+    if not canHop(id) or app.hopJob then return end
+    if os.clock() < app.nextHopAt then
+        status("Nova busca de servidor em " .. math.ceil(app.nextHopAt - os.clock()) .. "s")
+        return
+    end
+    local job = {token = id, reason = reason or "empty"}
+    app.hopJob = job
+    status(job.reason == "police" and ("Policiais " .. app.policeCount .. "/" .. CONFIG.MIN_POLICIAIS .. "; procurando outro servidor...") or "Sem bolsas; procurando outro servidor...")
+    local searchOK, destination, message, retry = pcall(findOtherServer, id)
+    if not searchOK then
+        warn("[VT AUTO SERVER] " .. tostring(destination))
+        destination, message, retry = nil, "Busca reiniciada apos erro", CONFIG.INTERVALO_BUSCA_SERVIDOR
+        resetServerPages()
+    end
+    if not canHop(id) or app.hopJob ~= job then
+        if app.hopJob == job then app.hopJob = nil end
+        return
+    end
+    if not destination then
+        app.hopJob = nil
+        app.nextHopAt = os.clock() + (retry or CONFIG.INTERVALO_BUSCA_SERVIDOR)
+        status(message or "Servidor indisponivel; tentando depois")
+        return
+    end
+    -- A falta de policiais tem prioridade mesmo quando ainda existem bolsas.
+    local policeReady = refreshPoliceCount() >= CONFIG.MIN_POLICIAIS
+    if job.reason == "police" and policeReady then
+        app.hopJob = nil
+        status("Minimo de policiais restabelecido; retomando coleta")
+        return
+    elseif not policeReady then
+        job.reason = "police"
+    end
+    chooseTarget()
+    if policeReady then
+        for _, location in ipairs({"cassino", "banco"}) do
+            if not isLocationBlocked(location) and (app.locationCounts[location] or 0) > 0 and app.policeCount >= requiredPolice(location) then
+                app.locationDone[location] = nil
+                chooseLocation(app.policeCount)
+                app.hopJob, app.emptySince, app.routeChecks = nil, nil, 0
+                status("Bolsas disponiveis em " .. locationName(location) .. "; continuando coleta")
+                return
+            end
+        end
+    end
+    job.destination = destination
+    serverSearch.failed[destination] = os.time() + 90 -- Tentativa, nao visita confirmada.
+    saveServerHistory()
+    if not canHop(id) or app.hopJob ~= job then return end
+    status("Entrando em outro servidor...")
+    local deadline = os.clock() + CONFIG.TIMEOUT_TROCA_SERVIDOR
+    local teleportThread = task.spawn(function()
+        local ok, err = pcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, destination, player) end)
+        if not ok and app.hopJob == job then job.error = tostring(err) end
+    end)
+    while canHop(id) and app.hopJob == job and not job.error and os.clock() < deadline do
+        if not waitActive(0.1, id) then break end
+    end
+    if teleportThread and type(task.cancel) == "function" then pcall(task.cancel, teleportThread) end
+    if app.hopJob ~= job then return end
+    app.hopJob = nil
+    if not canHop(id) then return end
+    app.nextHopAt = os.clock() + CONFIG.INTERVALO_BUSCA_SERVIDOR
+    status(job.error and "Troca falhou; tentando outro servidor depois" or "Troca nao confirmou; tentando depois")
+    if job.error then warn("[VT AUTO SERVER] " .. job.error) end
+end
+
+local function emptyServerReady()
+    if app.count > 0 or (app.location == "cassino" and app.routeChecks < #CONFIG.ROTA) then return false end
+    local now = os.clock()
+    if not app.emptySince then app.emptySince = now end
+    local deadline = math.max(app.startedAt + CONFIG.ESPERA_INICIAL_SERVIDOR, app.emptySince + CONFIG.SEGUNDOS_SEM_BOLSAS)
+    return now >= deadline, math.max(0, math.ceil(deadline - now))
+end
+
+local function updateButtons()
+    if refreshUI then refreshUI() end
+end
+
+local function reopenAvailableLocation(count)
+    for _, location in ipairs({"cassino", "banco"}) do
+        if not isLocationBlocked(location) and (app.locationCounts[location] or 0) > 0 and count >= requiredPolice(location) then
+            app.locationDone[location] = nil
+            return chooseLocation(count)
+        end
+    end
+    return nil
+end
+
+local function visitCurrentLocation(id)
+    local location = app.location
+    if app.locationVisited[location] then return true end
+    local pos = location == "banco" and CONFIG.BANCO_CENTRAL or CONFIG.POSICAO_CASSINO
+    if pos then
+        status("Indo para " .. locationName(location) .. "; carregando bolsas...")
+        local ok = beginHold(nil, pos, id)
+        if not ok or not waitActive(CONFIG.ESPERA_CARREGAMENTO_ROTA, id, true) then return false end
+    end
+    if not running(id) or not hasRequiredPolice(location) then return false end
+    app.locationVisited[location] = true
+    app.emptySince = nil
+    return true
+end
+
+local function worker(id)
+    while running(id) do
+        if not rootAndHumanoid() then
+            setEnabled(false)
+            status("Personagem indisponivel; ative novamente apos renascer")
+            return
+        end
+        local count = refreshPoliceCount()
+        if count < CONFIG.MIN_POLICIAIS then
+            local ready, remaining = policeHopReady()
+            if app.autoHop and ready then requestServerHop(id, "police")
+            else
+                status("Coleta pausada: policiais " .. count .. "/" .. CONFIG.MIN_POLICIAIS
+                    .. (app.autoHop and ("; verificando entrada por " .. remaining .. "s") or "; troca desligada"))
+            end
+            if not waitActive(0.2, id) then return end
+        elseif not chooseLocation(count) then
+            chooseTarget()
+            if not reopenAvailableLocation(count) then
+                if app.autoHop then requestServerHop(id, "completed")
+                else status("Locais permitidos finalizados; troca desligada") end
+                if not waitActive(0.4, id) then return end
+            end
+        elseif app.ghostEnabled and not app.isGhostActive() then
+            if not startGhost() then
+                setEnabled(false)
+                status(app.ghostError or "Ghost nao iniciou; auto roubo pausado")
+                return
+            end
+        elseif not app.indexed then
+            status("Indexando objetos...")
+            if not waitActive(0.2, id) then return end
+        elseif not app.locationVisited[app.location] then
+            visitCurrentLocation(id)
+            if not waitActive(0.1, id) then return end
+        else
+            local target = chooseTarget()
+            if app.count > 0 then app.emptySince = nil end
+            if target then
+                if not app.collectionProgress[target.location] then
+                    app.collectionProgress[target.location] = {at = os.clock(), failures = 0}
+                end
+                local ok, message = collectTarget(target, id)
+                if not running(id) then return end
+                if not hasRequiredPolice(target) then pauseForPolice()
+                else
+                    if app.hold and app.hold.id == id then
+                        app.hold.position = positionOf(target) or app.hold.position
+                        app.hold.target = nil
+                    end
+                    app.cooldowns[target.handle] = os.clock() + (ok and CONFIG.REVISITAR_APOS_SINAL or CONFIG.REVISITAR_APOS_FALHA)
+                    if not recordCollectionOutcome(target, ok) then status(locationName() .. ": " .. message) end
+                    if not waitActive(0.4, id) then return end
+                end
+            elseif app.count == 0 then
+                if not app.emptySince then app.emptySince = os.clock() end
+                local ready, remaining = emptyServerReady()
+                if ready then
+                    app.locationDone[app.location] = true
+                    app.emptySince = nil
+                    pauseForPolice()
+                    status(locationName() .. " finalizado; verificando proximo local")
+                elseif app.location == "cassino" and app.routeChecks < #CONFIG.ROTA then
+                    app.routeIndex = app.routeIndex % #CONFIG.ROTA + 1
+                    status("Visitando ponto " .. app.routeIndex .. " da rota do cassino")
+                    local held = beginHold(nil, CONFIG.ROTA[app.routeIndex], id)
+                    if held and waitActive(CONFIG.ESPERA_CARREGAMENTO_ROTA, id, true) then app.routeChecks = app.routeChecks + 1
+                    elseif not running(id) then return end
+                else
+                    status(locationName() .. ": sem bolsas; confirmando por " .. tostring(remaining or 0) .. "s")
+                    if not waitActive(0.5, id) then return end
+                end
+            else
+                status(locationName() .. ": aguardando cooldown das bolsas")
+                if not waitActive(0.4, id) then return end
+            end
+        end
+    end
+end
+
+setEnabled = function(value, reason)
+    if app.destroyed then return end
+    app.ghostRequest = (app.ghostRequest or 0) + 1
+    app.ghostPending = false
+    app.autoStartPending = false
+    if value == app.enabled and not (app.paused and not value and reason ~= "pause") then return end
+    if not value and reason == "pause" then
+        local root, hum, char = rootAndHumanoid()
+        app.enabled, app.paused, app.pausedAt = false, true, os.clock()
+        app.generation = app.generation + 1
+        app.hopJob = nil
+        cancelHeldPrompt()
+        if root and (app.hold or app.isGhostActive()) then
+            local hold = app.hold or {root = root, hum = hum, char = char,
+                usesGhost = app.isGhostActive(), below = app.below or app.isGhostActive()}
+            hold.target, hold.position, hold.offset = nil, root.Position, Vector3.zero
+            hold.id, hold.paused = app.generation, true
+            app.hold = hold
+        end
+        updateButtons()
+        status("Pausado no local; retome sem retornar ao inicio")
+        return
+    end
+    if value then
+        local root, _, char = rootAndHumanoid()
+        if not root then status("Aguarde o personagem carregar"); return end
+        local resuming = app.paused and app.originCharacter == char
+        if resuming then
+            local elapsed = math.max(0, os.clock() - (app.pausedAt or os.clock()))
+            app.startedAt = app.startedAt + elapsed
+            if app.emptySince then app.emptySince = app.emptySince + elapsed end
+            for _, progress in pairs(app.collectionProgress) do progress.at = progress.at + elapsed end
+        else
+            app.origin, app.originCharacter = app.getGhostSurfaceCFrame() or root.CFrame, char
+            app.startedAt, app.emptySince, app.routeChecks = os.clock(), nil, 0
+            app.location, app.locationDone, app.locationVisited, app.locationCounts = "cassino", {}, {}, {}
+            app.locationBlocked, app.collectionProgress = {}, {}
+            app.policeEverReady = false
+        end
+        app.hopJob = nil
+        app.enabled, app.paused, app.pausedAt = true, false, nil
+        app.generation = app.generation + 1
+        local id = app.generation
+        if app.hold then app.hold.id, app.hold.paused = id, nil end
+        updateButtons()
+        task.spawn(function()
+            local ok, err = pcall(worker, id)
+            if not ok and running(id) then
+                setEnabled(false)
+                status("Erro: " .. tostring(err):sub(1, 100))
+                warn("[VT AUTO ROUBO] " .. tostring(err))
+            end
+        end)
+    else
+        app.enabled, app.paused, app.pausedAt = false, false, nil
+        app.generation = app.generation + 1
+        app.hopJob, app.emptySince, app.routeChecks = nil, nil, 0
+        local ghostSurface = app.getGhostSurfaceCFrame()
+        if stopGhost then stopGhost() end
+        local lastHold = app.hold
+        local lastPosition = lastHold and ((lastHold.target and positionOf(lastHold.target)) or lastHold.position)
+        releaseHold()
+        local root, _, char = rootAndHumanoid()
+        if reason ~= "mode" and app.returnOnStop and root and app.origin and char == app.originCharacter then
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            root.CFrame = app.origin
+        elseif root and lastHold and lastHold.below and lastPosition and char == lastHold.char then
+            -- Sem retorno, sai de baixo do chao junto ao ultimo alvo.
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            root.CFrame = (lastHold.usesGhost and ghostSurface)
+                or (CFrame.new(lastPosition + Vector3.new(0, CONFIG.DISTANCIA_NORMAL, 0)) * root.CFrame.Rotation)
+        end
+        app.origin, app.originCharacter = nil, nil
+        updateButtons()
+        status("Desligado")
+    end
+end
+
+
+local function setGhostEnabled(value)
+    if app.destroyed then return end
+    local resume = app.enabled
+    if app.paused then
+        app.paused, app.pausedAt = false, nil
+        releaseHold()
+    end
+    if resume then setEnabled(false, "mode") end
+    app.ghostRequest = (app.ghostRequest or 0) + 1
+    local requestId = app.ghostRequest
+    app.ghostPending = false
+    app.ghostEnabled = value == true
+    if app.ghostEnabled then app.below = true else stopGhost() end
+    if resume then
+        setEnabled(true)
+    elseif app.ghostEnabled then
+        app.ghostPending = true
+        status("Ativando Ghost...")
+        task.spawn(function()
+                if app.destroyed or not app.ghostEnabled or app.ghostRequest ~= requestId then return end
+            if app.enabled then return end
+            app.ghostPending = false
+            if startGhost() then status("Ghost ativo; auto roubo pausado")
+            else app.ghostEnabled = false; status(app.ghostError or "Nao foi possivel iniciar o Ghost") end
+            updateButtons()
+        end)
+    else
+        status("Ghost desligado")
+    end
+    updateButtons()
+end
+
+local function toggleBelow()
+    local value, resume = not app.below, app.enabled
+    if app.paused then
+        app.paused, app.pausedAt = false, nil
+        releaseHold()
+    end
+    if resume then setEnabled(false, "mode") end
+    app.below = value
+    if not value then
+        app.ghostRequest = (app.ghostRequest or 0) + 1
+        app.ghostEnabled = false
+        stopGhost()
+    end
+    if resume then setEnabled(true) end
+    updateButtons()
+end
+
+local function startAutomatically()
+    if not app.autoStartPending or app.destroyed then return end
+    status("Aguardando personagem para iniciar automaticamente...")
+    task.spawn(function()
+        while not app.destroyed and app.autoStartPending do
+            if rootAndHumanoid() then
+                setEnabled(true)
+                return
+            end
+            task.wait(0.1)
+        end
+    end)
+end
+
+local function diagnostic()
+    local root = rootAndHumanoid()
+    if not root then status("Aguarde o personagem carregar"); return end
+    warn("[VT POLICIA] " .. refreshPoliceCount() .. "/" .. requiredPolice() .. " policiais em " .. locationName() .. "; equipes do servidor:")
+    local teamCounts = {}
+    for _, member in ipairs(Players:GetPlayers()) do
+        if not app.leavingPlayers[member] then
+            local name = member.Team and member.Team.Name or "Sem equipe"
+            local entry = teamCounts[name]
+            if not entry then entry = {total = 0, counted = 0, neutral = 0}; teamCounts[name] = entry end
+            entry.total = entry.total + 1
+            if member.Neutral == true then entry.neutral = entry.neutral + 1
+            elseif isPoliceTeam(member.Team) then entry.counted = entry.counted + 1 end
+        end
+    end
+    for name, entry in pairs(teamCounts) do
+        print("[VT EQUIPE] " .. name .. " | jogadores=" .. entry.total
+            .. " | contados=" .. entry.counted .. " | neutros=" .. entry.neutral)
+    end
+    local nearby = {}
+    for handle in pairs(app.registry) do
+        if inWorld(handle) then
+            local node, part = handle.Parent, nil
+            while node and node ~= World and not part do
+                if node:IsA("BasePart") then part = node
+                elseif node:IsA("Model") then part = node.PrimaryPart or node:FindFirstChildWhichIsA("BasePart", true) end
+                node = node.Parent
+            end
+            if part then
+                local distance = (part.Position - root.Position).Magnitude
+                if distance <= 150 then nearby[#nearby + 1] = {handle = handle, distance = distance} end
+            end
+        end
+    end
+    table.sort(nearby, function(a, b) return a.distance < b.distance end)
+    warn("[VT AUTO ROUBO] Interacoes a ate 150 studs. Proximo de uma bolsa, copie estas linhas para ajustar a deteccao:")
+    for i = 1, math.min(#nearby, 50) do
+        local entry = nearby[i]
+        local h = entry.handle
+        local text = h:IsA("ProximityPrompt") and (" | acao=" .. h.ActionText .. " | objeto=" .. h.ObjectText) or ""
+        print(string.format("[VT] %.1f studs | %s | %s%s", entry.distance, h.ClassName, h:GetFullName(), text))
+    end
+    status("Diagnostico: " .. math.min(#nearby, 50) .. " interacoes no console")
+end
+
+-- Alteracoes visuais locais e reversiveis; a fisica do mapa permanece ativa.
+
+refreshUI = function()
+    if host.onRobberyUpdate then host.onRobberyUpdate(app) end
+end
+destroy = function()
+    if app.destroyed then return end
+    setEnabled(false, "mode")
+    app.destroyed = true
+    app.generation = app.generation + 1
+    stopGhost()
+    releaseHold()
+    for _, connection in ipairs(app.connections) do pcall(function() connection:Disconnect() end) end
+    for _, group in pairs(app.policeConnections) do
+        for _, connection in ipairs(group) do pcall(function() connection:Disconnect() end) end
+    end
+    app.connections, app.policeConnections, app.registry = {}, {}, {}
+    if env.__VT_AUTO_ROUBO_CLEANUP == destroy then env.__VT_AUTO_ROUBO_CLEANUP = nil end
+end
+local initialDepth = CONFIG.PROFUNDIDADE_CASSINO
+app.setEnabled, app.cleanup, app.diagnostic = setEnabled, destroy, diagnostic
+app.depthLimit = initialDepth
+function app.setOption(key, value)
+    local allowed = {ghostEnabled=true, below=true, autoHop=true, deepCasino=true, returnOnStop=true}
+    if not allowed[key] or app.destroyed then return end
+    local resume = app.enabled
+    if key == "autoHop" or key == "returnOnStop" then
+        app[key] = value == true
+        if key == "autoHop" and not app.autoHop then app.hopJob = nil end
+        updateButtons()
+        return
+    end
+    if app.enabled or app.paused then setEnabled(false, "mode") end
+    app[key] = value == true
+    if key == "ghostEnabled" and app.ghostEnabled then app.below = true end
+    if key == "below" and not app.below then app.ghostEnabled = false end
+    if resume then setEnabled(true, "resume") end
+    updateButtons()
+end
+function app.setDepth(value)
+    CONFIG.PROFUNDIDADE_CASSINO = math.clamp(math.floor(tonumber(value) or initialDepth),1,120)
+    app.depthLimit = CONFIG.PROFUNDIDADE_CASSINO
+    updateButtons()
+end
+function app.resetSettings()
+    setEnabled(false, "mode")
+    app.ghostEnabled, app.below, app.autoHop, app.deepCasino, app.returnOnStop = false,false,false,false,false
+    app.setDepth(initialDepth)
+    updateButtons()
+end
+loadServerHistory()
+env.__VT_AUTO_ROUBO_CLEANUP = destroy
+connect(player.CharacterRemoving, function()
+    if app.enabled or app.paused then setEnabled(false,"character") end
+    stopGhost()
+    status("Personagem saiu; ative novamente apos renascer")
+end)
+connect(player.CharacterAdded, function() stopGhost() end)
+connect(RunService.Stepped, maintainHold)
+connect(TeleportService.TeleportInitFailed, onTeleportFailed)
+connect(Players.PlayerAdded, function(member) watchPolicePlayer(member); refreshPoliceCount() end)
+connect(Players.PlayerRemoving, removePolicePlayer)
+for _, member in ipairs(Players:GetPlayers()) do watchPolicePlayer(member) end
+refreshPoliceCount()
+connect(World.DescendantAdded, function(obj) if collectorKind(obj) then app.registry[obj]=true end end)
+connect(World.DescendantRemoving, function(obj) app.registry[obj],app.cooldowns[obj]=nil,nil end)
+task.spawn(function()
+    for index,obj in ipairs(World:GetDescendants()) do
+        if app.destroyed then return end
+        if collectorKind(obj) and inWorld(obj) then app.registry[obj]=true end
+        if index%200==0 then task.wait() end
+    end
+    app.indexed=true
+    if not app.destroyed then chooseTarget() end
+end)
+task.spawn(function()
+    while not app.destroyed do
+        refreshPoliceCount()
+        if app.indexed then chooseTarget() end
+        task.wait(1)
+    end
+end)
+return app
+
     end
 end
 
@@ -5772,6 +7271,11 @@ do
         if o.stopMovement then o.stopMovement() end
         T.ghostEnabled = false
         if o.stopGhost then pcall(o.stopGhost) end
+        if mode == "items" or mode == "garbage" or mode == "garage" or mode == "teleport" then
+            T.noclipEnabled, T.noclipCarEnabled, T.vFlyEnabled = false,false,false
+            if o.restaurarNoclipCar then pcall(o.restaurarNoclipCar) end
+            if o.noclip then o.noclip.restore() end
+        end
         switching = false
         o.syncFarmControls()
         return true
@@ -6721,7 +8225,7 @@ end))
 
 -- CLEANUP
 C.__VETERANO_SINTONIA_WINDOW = W
-C.__VETERANO_SINTONIA_BUILD = "menu-v12-login-sync-lph"
+C.__VETERANO_SINTONIA_BUILD = "premium-pc-mobile-r13"
 C.__VETERANO_SINTONIA_CLEANUP = function()
     o.destroyed = true
     if o.cleanupMovement then pcall(o.cleanupMovement) end
@@ -6731,7 +8235,6 @@ C.__VETERANO_SINTONIA_CLEANUP = function()
     if o.cleanupSpinPlayer then pcall(o.cleanupSpinPlayer) end
     if o.cleanupESPTracer then pcall(o.cleanupESPTracer) end
     if o.robbery then pcall(o.robbery.cleanup) end
-    if o.acRuntime then o.acRuntime.destroyed = true end
     if o.travel then o.travel.cancel() end
     if o.cancelQuickActions then pcall(o.cancelQuickActions) end
     if o.noclip then o.noclip.restore() end
