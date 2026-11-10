@@ -1065,19 +1065,7 @@ do
     end
 
 local function applyBypass()
-    local filtergc = getgenv and getgenv().filtergc or _G and G.filtergc
-    local hookfunction = hookfunction or (syn and syn.hookfunction)
-    local newcclosure = newcclosure or (syn and syn.newcclosure)
-    if not (filtergc and hookfunction and newcclosure) then return end
-    local ok, funcs = pcall(filtergc, "function", { Constants = { "FireServer" } }, false)
-    if ok then
-        for _, fn in ipairs(funcs) do
-            local okInfo, src = pcall(debug.info, fn, "s")
-            if okInfo and type(src) == "string" and src:find("Protect") then
-                pcall(hookfunction, fn, newcclosure(function(...) return nil end))
-            end
-        end
-    end
+    -- Teste diagnostico: nao altera funcoes de protecao do jogo.
 end
 
     local function runBypass(source)
