@@ -960,7 +960,6 @@ do
         if not session.cancelled then send() end
     end)
 end
-
 local S = VTUI.Slate
 
 -- ============================================================
@@ -1239,6 +1238,50 @@ do
 local flyActive = false
 local flyConnection
 local flySpeed = 1.5
+-- Controles de altura no celular; nenhum envio de dados.
+local flyTouchGui, flyUp, flyDown = nil, false, false
+local function removeFlyTouch()
+    flyUp, flyDown = false, false
+    if flyTouchGui then flyTouchGui:Destroy(); flyTouchGui = nil end
+end
+local function makeFlyTouch()
+    removeFlyTouch()
+    if not UserInputService.TouchEnabled then return end
+    local parent = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    if not parent then return end
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "VeteranoFlyTouch"
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    gui.DisplayOrder = 20
+    gui.Parent = parent
+    flyTouchGui = gui
+    for i, label in ipairs({"Subir", "Descer"}) do
+        local button = Instance.new("TextButton")
+        button.Name = label
+        button.AnchorPoint = Vector2.new(1, 1)
+        button.Position = UDim2.new(1, -20, 1, -110 - (i - 1) * 64)
+        button.Size = UDim2.fromOffset(80, 54)
+        button.BackgroundColor3 = Color3.fromRGB(39, 31, 57)
+        button.BackgroundTransparency = 0.15
+        button.TextColor3 = Color3.fromRGB(245, 242, 255)
+        button.Font = Enum.Font.GothamBold
+        button.TextSize = 15
+        button.Text = label
+        button.Parent = gui
+        Instance.new("UICorner", button).CornerRadius = UDim.new(0, 10)
+        button.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                if i == 1 then flyUp = true else flyDown = true end
+            end
+        end)
+        button.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                if i == 1 then flyUp = false else flyDown = false end
+            end
+        end)
+    end
+end
 
 local speedActive = false
 local speedConnection
@@ -1263,12 +1306,14 @@ local function toggleFly()
         highlight.FillTransparency = 0.5
         highlight.Parent = char
 
-        flyConnection = RunService.RenderStepped:Connect(function()
+        makeFlyTouch()
+        flyConnection = RunService.RenderStepped:Connect(function(dt)
             if not flyActive then return end
             local char = LocalPlayer.Character
             local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            if not hrp then return end
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
             local camera = workspace.CurrentCamera
+            if not hrp or not hum or not camera then return end
             local moveDir = Vector3.new(0,0,0)
             local UIS = UserInputService
             if UIS:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + camera.CFrame.LookVector end
@@ -1277,11 +1322,19 @@ local function toggleFly()
             if UIS:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + camera.CFrame.RightVector end
             if UIS:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0,1,0) end
             if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - Vector3.new(0,1,0) end
+            if UIS.TouchEnabled then
+                if moveDir.Magnitude == 0 then moveDir = hum.MoveDirection end
+                if flyUp then moveDir = moveDir + Vector3.new(0,1,0) end
+                if flyDown then moveDir = moveDir - Vector3.new(0,1,0) end
+            end
             if moveDir.Magnitude > 0 then
-                hrp.CFrame = hrp.CFrame + (moveDir.Unit * flySpeed)
+                -- No PC mantem a velocidade original por frame; no toque estabiliza em 60 FPS.
+                local scale = UIS.TouchEnabled and math.clamp(dt * 60, 0, 2) or 1
+                hrp.CFrame = hrp.CFrame + (moveDir.Unit * flySpeed * scale)
             end
         end)
     else
+        removeFlyTouch()
         if flyConnection then flyConnection:Disconnect() end
         if hrp then hrp.Anchored = false end
         if humanoid then humanoid.PlatformStand = false end
@@ -1291,12 +1344,12 @@ local function toggleFly()
 end
 
 -- TP (INTOCADO)
-local function teleportToPosition(targetPos)
+local function teleportToPosition(targetPos, rotation)
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     local humanoid = char and char:FindFirstChildOfClass("Humanoid")
     if not (hrp and humanoid) then return end
-    local targetCFrame = CFrame.new(targetPos + Vector3.new(0, 3, 0))
+    local targetCFrame = CFrame.new(targetPos + Vector3.new(0, 3, 0)) * (rotation or CFrame.new())
     local highlight = Instance.new("Highlight")
     highlight.FillColor = Color3.fromRGB(0, 150, 255)
     highlight.OutlineColor = Color3.fromRGB(0, 255, 255)
@@ -1309,6 +1362,9 @@ local function teleportToPosition(targetPos)
     hrp.Anchored = false
     humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
 end
+
+-- Reutiliza a rotina do hospital sem interromper o farm em andamento.
+o.teleportHospitalStep = teleportToPosition
 
 -- SPEED ANCHORED (MESMA LÓGICA DO FLY)
 local function toggleSpeed()
@@ -1353,6 +1409,7 @@ local function stopFly()
     if flyActive then pcall(toggleFly) end
     flyActive, T.flyEnabled = false, false
     if flyConnection then flyConnection:Disconnect(); flyConnection = nil end
+    removeFlyTouch()
     if flyRoot then pcall(function() flyRoot.Anchored = false end) end
     if flyHumanoid then pcall(function() flyHumanoid.PlatformStand = false end) end
     if flyCharacter then
@@ -2993,7 +3050,12 @@ local function XF(plr, b2, cam, myPos, now)
         local tr = oF(b2)
         if tr then
             local vp = cam.ViewportSize
-            local finish = anyOnScreen and Vector2.new((minX + maxX) * 0.5, (minY + maxY) * 0.5) or screenPos
+            local head = char:FindFirstChild("Head")
+            local finish = screenPos
+            if head then
+                local headPos, headVisible, headDepth = zF(cam, head.Position)
+                if headVisible and headDepth > 0 then finish = headPos end
+            end
             if vp.X > 0 and vp.Y > 0 then
                 local endpoint = Vector2.new(math.clamp(finish.X, 0, vp.X), math.clamp(finish.Y, 0, vp.Y))
                 o.renderESPLine(tr, Vector2.new(vp.X * 0.5, 4), endpoint,
@@ -3070,6 +3132,22 @@ handleReady(RunService.RenderStepped:Connect(function()
                     b2.nextVisualUpdate = now + 0.5
                     pcall(uF, b2)
                 end
+            end
+            -- Tracer separado da taxa reduzida dos demais desenhos para seguir a cabeca.
+            if b2 and T.tracer and b2.tracer and b2.tracer.Parent then
+                local target = plr.Character
+                local head = target and target:FindFirstChild("Head")
+                local hum = target and target:FindFirstChildOfClass("Humanoid")
+                local targetRoot = target and target:FindFirstChild("HumanoidRootPart")
+                if head and hum and hum.Health > 0 and targetRoot
+                    and (targetRoot.Position - myPos).Magnitude <= T.maxDistance then
+                    local pos, visible, depth = zF(cam, head.Position)
+                    local vp = cam.ViewportSize
+                    if visible and depth > 0 and vp.X > 0 and vp.Y > 0 then
+                        o.renderESPLine(b2.tracer, Vector2.new(vp.X * 0.5, 4), pos,
+                            b2.relationshipColor or Color3.fromRGB(170, 70, 255), 1.4)
+                    else b2.tracer.Visible = false end
+                else b2.tracer.Visible = false end
             end
         end
     end
@@ -3290,15 +3368,19 @@ do
         return pcall(function() prompt:InputHoldEnd() end)
     end
 
-    -- Mesmo reposicionamento usado pela garagem, sem passos intermediarios.
+    -- A garagem e os deslocamentos usam a mesma rotina do TP hospital.
+    -- Compensa a altura interna de 3 studs para manter o destino do chamador.
     function o.teleportCharacter(cf)
-        if o.fixedTeleportBusy then return false end
-        local char, root = LocalPlayer.Character, isRoot()
-        if not char or not root or root.Anchored then return false end
-        local offset = root.CFrame:ToObjectSpace(char:GetPivot())
-        char:PivotTo(cf * offset)
-        root.AssemblyLinearVelocity, root.AssemblyAngularVelocity = Vector3.zero, Vector3.zero
-        return true
+        if o.fixedTeleportBusy or typeof(cf) ~= "CFrame" then return false end
+        local char, root, hum = LocalPlayer.Character, isRoot(), isCValid()
+        if not char or not root or not hum or hum.Health <= 0 or root.Anchored or hum.SeatPart then return false end
+        local ok, problem = pcall(o.teleportHospitalStep, cf.Position - Vector3.new(0, 3, 0), cf.Rotation)
+        if root.Parent then
+            pcall(function() root.Anchored = false end)
+            pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
+        end
+        if not ok then warn("[VETERANO TEAM] Teleporte: " .. tostring(problem)); return false end
+        return LocalPlayer.Character == char and root.Parent ~= nil and hum.Health > 0
     end
 
     local M = { owner = nil, token = 0 }
@@ -3315,7 +3397,7 @@ do
         M.owner, M.token = owner, M.token + 1
         local token = M.token
         o.travelBusy = true
-        o.noclip.acquire("travel")
+        -- TP da pesca e do lixeiro nao adquire noclip em nenhuma plataforma.
         local function running()
             return not o.destroyed and M.token == token and char == LocalPlayer.Character
                 and root.Parent and hum.Health > 0 and (not active or active())
@@ -3334,7 +3416,6 @@ do
             return true
         end)
         if root.Parent then root.AssemblyLinearVelocity, root.AssemblyAngularVelocity = Vector3.zero, Vector3.zero end
-        o.noclip.release("travel")
         M.owner, o.travelBusy = nil, false
         if not ok then return false, "Falha no deslocamento: " .. tostring(success) end
         return success, message
@@ -8012,10 +8093,16 @@ end
 -- ============================================================
 -- MENU SLATE — JANELA
 -- ============================================================
+local mobileViewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize
+local menuWidth, menuHeight = 420, 300
+if UserInputService.TouchEnabled and mobileViewport and mobileViewport.X > 0 and mobileViewport.Y > 0 then
+    menuWidth = math.min(420, math.max(240, math.floor(mobileViewport.X - 20)))
+    menuHeight = math.min(300, math.max(180, math.floor(mobileViewport.Y - 20)))
+end
 local W = S:CreateWindow({
     Name = "VETERANO TEAM", Subtitle = "PREMIUM ACCESS  /  SINTONIA RP",
     Icon = "shield", Logo = true, LogoAccentFrom = #"VETERANO TEAM" + 1,
-    Size = UDim2.fromOffset(420, 300), MinSize = Vector2.new(420, 300),
+    Size = UDim2.fromOffset(menuWidth, menuHeight), MinSize = Vector2.new(menuWidth, menuHeight),
     Backdrop = "aurora", ToggleKey = Enum.KeyCode.Insert,
 })
 VTUI.Apply(W)
@@ -8103,7 +8190,7 @@ secP:Paragraph({ Name = "Pulo", Text = "Ative e pule normalmente. O reforco paus
 local secPM = tabPlayer:CreateSection({ Name = "Movimento Extra" })
 o.flyControl = o.configControl(secPM, "Toggle", "flyEnabled", { Name = "Fly", Default = false, Callback = function(v) o.setFly(v) end })
 o.configControl(secPM, "Slider", "flySpeed", { Name = "Vel. Fly", Min = 0.5, Max = 10, Step = 0.1, Decimals = 1, Default = 1.5, Suffix = " /f", Callback = function(v) o.setFlySpeed(v) end })
-secPM:Paragraph({ Name = "Controles do Fly", Text = "W/A/S/D: mover | ESPACO: subir | SHIFT esquerdo: descer. Velocidades em studs por frame (/f)." })
+secPM:Paragraph({ Name = "Controles do Fly", Text = "PC: W/A/S/D, ESPACO e SHIFT. Celular: direcional, Subir e Descer. A velocidade do celular e ajustada pelo tempo de quadro." })
 o.ghostControl = o.configControl(secPM, "Toggle", "ghostEnabled", { Name = "Ghost Mode", Default = false, Callback = function(v) T.ghostEnabled = v; if v then pcall(o.startGhost) else pcall(o.stopGhost) end end })
 o.spinControl = o.configControl(secPM, "Toggle", "spinEnabled", {Name="Spin Player", Default=false,
     Callback=function(value) o.setSpinPlayer(value) end})
